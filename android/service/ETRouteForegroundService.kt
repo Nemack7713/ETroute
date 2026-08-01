@@ -16,9 +16,9 @@ import com.example.etroute.ipc.ETRouteErrorCodes
 import com.example.etroute.ipc.ETRouteRequest
 import com.example.etroute.ipc.ETRouteResponse
 import com.example.etroute.orchestration.ETRouteOrchestrator
-import com.example.etroute.orchestration.ETumaxTransport
 import com.example.etroute.repository.ETRouteRepository
 import com.example.etroute.room.ETRouteDatabase
+import com.example.etroute.transport.LoopbackETumaxTransport
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -51,7 +51,7 @@ class ETRouteForegroundService : Service() {
 
         orchestrator = ETRouteOrchestrator(
             repository = repository,
-            transport = UnavailableETumaxTransport()
+            transport = LoopbackETumaxTransport()
         )
 
         ensureNotificationChannel()
@@ -148,21 +148,4 @@ interface ETRouteRequestDelegate {
     suspend fun transact(request: ETRouteRequest): ETRouteResponse
     suspend fun getStatus(sessionId: String): ETRouteResponse
     suspend fun stopSession(sessionId: String): ETRouteResponse
-}
-
-private class UnavailableETumaxTransport : ETumaxTransport {
-    override suspend fun transact(request: ETRouteRequest): ETRouteResponse {
-        return ETRouteResponse(
-            requestId = request.requestId,
-            sessionId = request.sessionId,
-            ok = false,
-            createdAt = OffsetDateTime.now().toString(),
-            errorCode = ETRouteErrorCodes.RUNTIME_FAILURE,
-            errorMessage = "ETumax transport is not configured"
-        )
-    }
-
-    override suspend fun stopSession(sessionId: String) {
-        // ETroute owns session state; no ETumax transport is configured yet.
-    }
 }
