@@ -74,11 +74,17 @@ class LoopbackETumaxTransport(
 
     override suspend fun transact(request: ETRouteRequest): ETRouteResponse {
         request.validate()
-        if (!ensureReady()) {
-            return failure(request, "ETumax loopback service is not ready")
-        }
+        if (!ensureReady()) return failure(request, "ETumax loopback service is not ready")
+        return withContext(Dispatchers.IO) { postOnce("/v1/transact", requestJson(request), request) }
+    }
+
+    override suspend fun getSession(sessionId: String): ETRouteResponse {
+        require(sessionId.matches(ID_PATTERN)) { "Invalid sessionId" }
+        val request = statusRequest(sessionId)
+        if (!readinessProbe.isReady()) return failure(request, "ETumax loopback service is not ready")
         return withContext(Dispatchers.IO) {
-            postOnce("/v1/transact", requestJson(request), request)
+            val encoded = URLEncoder.encode(sessionId, Charsets.UTF_8.name())
+            getOnce("/v1/sessions/$encoded", request)
         }
     }
 
@@ -103,11 +109,28 @@ class LoopbackETumaxTransport(
         if (!starter.ensureStarted()) return false
         repeat(startupAttempts) { attempt ->
             if (readinessProbe.isReady()) return true
-            if (attempt + 1 < startupAttempts) {
-                delay(startupRetryDelayMs * (attempt + 1))
-            }
+            if (attempt + 1 < startupAttempts) delay(startupRetryDelayMs * (attempt + 1))
         }
         return false
+    }
+
+    private fun getOnce(path: String, request: ETRouteRequest): ETRouteResponse {
+        val target = baseUri.resolve(path)
+        requireLoopback(target)
+        val connection = target.toURL().openConnection() as HttpURLConnection
+        return try {
+            connection.requestMethod = "GET"
+            connection.connectTimeout = connectTimeoutMs
+            connection.readTimeout = readTimeoutMs
+            connection.useCaches = false
+            connection.instanceFollowRedirects = false
+            connection.setRequestProperty("Accept", "application/json")
+            readResponse(connection, request)
+        } catch (exception: IOException) {
+            failure(request, "ETumax loopback I/O failure: ${exception.message}")
+        } finally {
+            connection.disconnect()
+        }
     }
 
     private fun postOnce(path: String, body: String, request: ETRouteRequest): ETRouteResponse {
@@ -124,15 +147,7 @@ class LoopbackETumaxTransport(
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
             connection.setRequestProperty("Accept", "application/json")
             connection.outputStream.bufferedWriter(Charsets.UTF_8).use { it.write(body) }
-
-            val status = connection.responseCode
-            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val responseBody = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-            if (status !in 200..299) {
-                return failure(request, "ETumax returned HTTP $status${if (responseBody.isBlank()) "" else ": $responseBody"}")
-            }
-            if (responseBody.isBlank()) return failure(request, "ETumax returned an empty response")
-            parseResponse(responseBody, request)
+            readResponse(connection, request)
         } catch (exception: IOException) {
             failure(request, "ETumax loopback I/O failure: ${exception.message}")
         } finally {
@@ -140,11 +155,27 @@ class LoopbackETumaxTransport(
         }
     }
 
+    private fun readResponse(connection: HttpURLConnection, request: ETRouteRequest): ETRouteResponse {
+        val status = connection.responseCode
+        val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+        val responseBody = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+        if (status !in 200..299) {
+            return failure(request, "ETumax returned HTTP $status${if (responseBody.isBlank()) "" else ": $responseBody"}")
+        }
+        if (responseBody.isBlank()) return failure(request, "ETumax returned an empty response")
+        return parseResponse(responseBody, request)
+    }
+
+    private fun statusRequest(sessionId: String) = ETRouteRequest(
+        action = "get_status",
+        requestId = "status-$sessionId",
+        sessionId = sessionId,
+        createdAt = OffsetDateTime.now().toString()
+    )
+
     private fun requestJson(request: ETRouteRequest): String {
         val payload = JSONObject()
-        for (key in request.payload.keySet()) {
-            payload.put(key, request.payload.get(key))
-        }
+        for (key in request.payload.keySet()) payload.put(key, request.payload.get(key))
         return JSONObject()
             .put("version", request.version)
             .put("caller", request.caller)
@@ -192,16 +223,14 @@ class LoopbackETumaxTransport(
         }
     }
 
-    private fun failure(request: ETRouteRequest, message: String): ETRouteResponse {
-        return ETRouteResponse(
-            requestId = request.requestId,
-            sessionId = request.sessionId,
-            ok = false,
-            createdAt = OffsetDateTime.now().toString(),
-            errorCode = ETRouteErrorCodes.RUNTIME_FAILURE,
-            errorMessage = message
-        )
-    }
+    private fun failure(request: ETRouteRequest, message: String): ETRouteResponse = ETRouteResponse(
+        requestId = request.requestId,
+        sessionId = request.sessionId,
+        ok = false,
+        createdAt = OffsetDateTime.now().toString(),
+        errorCode = ETRouteErrorCodes.RUNTIME_FAILURE,
+        errorMessage = message
+    )
 }
 
 private fun requireLoopback(uri: URI) {
