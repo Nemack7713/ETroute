@@ -10,10 +10,15 @@ import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.room.Room
 import com.example.etroute.ipc.ETRouteBinderApi
 import com.example.etroute.ipc.ETRouteErrorCodes
 import com.example.etroute.ipc.ETRouteRequest
 import com.example.etroute.ipc.ETRouteResponse
+import com.example.etroute.orchestration.ETRouteOrchestrator
+import com.example.etroute.orchestration.ETumaxTransport
+import com.example.etroute.repository.ETRouteRepository
+import com.example.etroute.room.ETRouteDatabase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -24,10 +29,31 @@ class ETRouteForegroundService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val localBinder = LocalBinder()
 
-    var requestDelegate: ETRouteRequestDelegate = RejectingRequestDelegate()
+    private lateinit var database: ETRouteDatabase
+    private lateinit var repository: ETRouteRepository
+    private lateinit var orchestrator: ETRouteOrchestrator
 
     override fun onCreate() {
         super.onCreate()
+
+        database = Room.databaseBuilder(
+            applicationContext,
+            ETRouteDatabase::class.java,
+            DATABASE_NAME
+        ).build()
+
+        repository = ETRouteRepository(
+            sessionDao = database.sessionDao(),
+            capabilityGrantDao = database.capabilityGrantDao(),
+            workspaceJournalDao = database.workspaceJournalDao(),
+            auditEventDao = database.auditEventDao()
+        )
+
+        orchestrator = ETRouteOrchestrator(
+            repository = repository,
+            transport = UnavailableETumaxTransport()
+        )
+
         ensureNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification("ETroute is ready"))
     }
@@ -36,6 +62,9 @@ class ETRouteForegroundService : Service() {
 
     override fun onDestroy() {
         serviceScope.cancel()
+        if (::database.isInitialized) {
+            database.close()
+        }
         super.onDestroy()
     }
 
@@ -43,7 +72,7 @@ class ETRouteForegroundService : Service() {
         override suspend fun transact(request: ETRouteRequest): ETRouteResponse {
             return try {
                 request.validate()
-                requestDelegate.transact(request)
+                orchestrator.transact(request)
             } catch (exception: IllegalArgumentException) {
                 failureResponse(
                     request = request,
@@ -60,11 +89,11 @@ class ETRouteForegroundService : Service() {
         }
 
         override suspend fun getStatus(sessionId: String): ETRouteResponse {
-            return requestDelegate.getStatus(sessionId)
+            return orchestrator.getStatus(sessionId)
         }
 
         override suspend fun stopSession(sessionId: String): ETRouteResponse {
-            return requestDelegate.stopSession(sessionId)
+            return orchestrator.stopSession(sessionId)
         }
     }
 
@@ -111,6 +140,7 @@ class ETRouteForegroundService : Service() {
     companion object {
         const val CHANNEL_ID = "etroute_orchestration"
         const val NOTIFICATION_ID = 4101
+        const val DATABASE_NAME = "etroute.db"
     }
 }
 
@@ -120,27 +150,19 @@ interface ETRouteRequestDelegate {
     suspend fun stopSession(sessionId: String): ETRouteResponse
 }
 
-private class RejectingRequestDelegate : ETRouteRequestDelegate {
+private class UnavailableETumaxTransport : ETumaxTransport {
     override suspend fun transact(request: ETRouteRequest): ETRouteResponse {
-        return unavailable(request.requestId, request.sessionId)
-    }
-
-    override suspend fun getStatus(sessionId: String): ETRouteResponse {
-        return unavailable("status-$sessionId", sessionId)
-    }
-
-    override suspend fun stopSession(sessionId: String): ETRouteResponse {
-        return unavailable("stop-$sessionId", sessionId)
-    }
-
-    private fun unavailable(requestId: String, sessionId: String): ETRouteResponse {
         return ETRouteResponse(
-            requestId = requestId,
-            sessionId = sessionId,
+            requestId = request.requestId,
+            sessionId = request.sessionId,
             ok = false,
             createdAt = OffsetDateTime.now().toString(),
             errorCode = ETRouteErrorCodes.RUNTIME_FAILURE,
-            errorMessage = "No ETumax transport delegate has been configured"
+            errorMessage = "ETumax transport is not configured"
         )
+    }
+
+    override suspend fun stopSession(sessionId: String) {
+        // ETroute owns session state; no ETumax transport is configured yet.
     }
 }
