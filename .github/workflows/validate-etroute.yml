@@ -1,0 +1,118 @@
+name: Validate ETroute
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - agent/etroute-v0.1-foundation
+      - agent/waydroid-policy-adapters
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Repository inventory
+        run: |
+          set -euo pipefail
+          echo "ETroute validation"
+          echo "ref=${GITHUB_REF}"
+          echo "sha=${GITHUB_SHA}"
+          find . -maxdepth 3 -type f \
+            -not -path './.git/*' \
+            -not -path './.gradle/*' \
+            -not -path './build/*' \
+            | sort > etroute_inventory.txt
+          cat etroute_inventory.txt
+
+      - name: Python syntax validation
+        run: |
+          set -euo pipefail
+          mapfile -t PY_FILES < <(find . -type f -name '*.py' \
+            -not -path './.git/*' \
+            -not -path './.venv/*' \
+            -not -path './venv/*' \
+            -not -path './build/*' \
+            -not -path './dist/*' \
+            | sort)
+
+          if [ ${#PY_FILES[@]} -eq 0 ]; then
+            echo "No Python files found; syntax validation not applicable." | tee etroute_python_validation.txt
+            exit 0
+          fi
+
+          printf '%s\n' "${PY_FILES[@]}" > etroute_python_files.txt
+          python -m py_compile "${PY_FILES[@]}"
+          echo "Python syntax validation passed for ${#PY_FILES[@]} file(s)." | tee etroute_python_validation.txt
+
+      - name: Python unit tests when present
+        run: |
+          set -euo pipefail
+          if find . -type f \( -name 'test_*.py' -o -name '*_test.py' \) \
+              -not -path './.git/*' | grep -q .; then
+            python -m unittest discover -v 2>&1 | tee etroute_tests.txt
+          else
+            echo "No unittest-style Python tests discovered; test step not applicable." | tee etroute_tests.txt
+          fi
+
+      - name: Repository hygiene
+        run: |
+          set -euo pipefail
+          BAD_FILES=$(find . -type f \
+            \( -name '*.apk' -o -name '*.aab' -o -name '*.apks' \
+               -o -name '*.pyc' -o -name '.env' -o -name '.env.*' \
+               -o -name '*.jks' -o -name '*.keystore' -o -name '*.p12' \
+               -o -name '*.pem' -o -name '*.key' \) \
+            -not -path './.git/*' || true)
+
+          if [ -n "$BAD_FILES" ]; then
+            echo "Disallowed generated/sensitive file patterns found:" | tee etroute_hygiene.txt
+            echo "$BAD_FILES" | tee -a etroute_hygiene.txt
+            exit 1
+          fi
+
+          echo "Repository hygiene check passed." | tee etroute_hygiene.txt
+
+      - name: Validation summary
+        if: always()
+        run: |
+          {
+            echo "# ETroute validation"
+            echo
+            echo "- Ref: \`${GITHUB_REF}\`"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Python syntax: see attached validation files"
+            echo "- Unit tests: conditional on discoverable tests"
+            echo "- Hygiene: generated/secrets-pattern scan"
+          } | tee etroute_validation_summary.md
+          cat etroute_validation_summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload validation report
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: etroute-validation-report
+          path: |
+            etroute_inventory.txt
+            etroute_python_files.txt
+            etroute_python_validation.txt
+            etroute_tests.txt
+            etroute_hygiene.txt
+            etroute_validation_summary.md
+          if-no-files-found: ignore
+          retention-days: 7
