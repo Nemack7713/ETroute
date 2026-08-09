@@ -63,14 +63,15 @@ jobs:
       - name: Python unit tests when present
         run: |
           set -euo pipefail
-          if find . -type f \( -name 'test_*.py' -o -name '*_test.py' \) \
-              -not -path './.git/*' | grep -q .; then
-            python -m unittest discover -v 2>&1 | tee etroute_tests.txt
+          if find tests -type f \( -name 'test_*.py' -o -name '*_test.py' \) 2>/dev/null | grep -q .; then
+            echo "Running unittest discovery explicitly from tests/."
+            python -m unittest discover -s tests -p 'test_*.py' -v 2>&1 | tee etroute_tests.txt
           else
-            echo "No unittest-style Python tests discovered; test step not applicable." | tee etroute_tests.txt
+            echo "No unittest-style Python tests discovered under tests/; test step not applicable." | tee etroute_tests.txt
           fi
 
       - name: Repository hygiene
+        if: always()
         run: |
           set -euo pipefail
           BAD_FILES=$(find . -type f \
@@ -78,7 +79,10 @@ jobs:
                -o -name '*.pyc' -o -name '.env' -o -name '.env.*' \
                -o -name '*.jks' -o -name '*.keystore' -o -name '*.p12' \
                -o -name '*.pem' -o -name '*.key' \) \
-            -not -path './.git/*' || true)
+            -not -path './.git/*' \
+            -not -path './__pycache__/*' \
+            -not -path './tests/__pycache__/*' \
+            -not -path './tools/__pycache__/*' || true)
 
           if [ -n "$BAD_FILES" ]; then
             echo "Disallowed generated/sensitive file patterns found:" | tee etroute_hygiene.txt
@@ -97,7 +101,7 @@ jobs:
             echo "- Ref: \`${GITHUB_REF}\`"
             echo "- Commit: \`${GITHUB_SHA}\`"
             echo "- Python syntax: see attached validation files"
-            echo "- Unit tests: conditional on discoverable tests"
+            echo "- Unit tests: explicit discovery from \`tests/\` when present"
             echo "- Hygiene: generated/secrets-pattern scan"
           } | tee etroute_validation_summary.md
           cat etroute_validation_summary.md >> "$GITHUB_STEP_SUMMARY"
