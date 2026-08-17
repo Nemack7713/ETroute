@@ -2,8 +2,9 @@
 """ETumax-to-ETroute one-shot subprocess bridge.
 
 Runs ETroute's diagnostic command, captures stdout, validates its JSON contract,
-and emits one machine-readable terminal execution envelope. Stdlib only; no
-network use.
+and emits one machine-readable terminal execution envelope. Optionally accepts
+an ETroute Event Protocol v1 envelope from ETumax and acknowledges it only after
+the one-shot diagnostic handshake succeeds. Stdlib only; no network use.
 """
 from __future__ import annotations
 
@@ -16,11 +17,18 @@ import uuid
 from pathlib import Path
 from typing import Any, Sequence
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from bridge_protocol import EventAcknowledgement, EventEnvelope, ProtocolError
+
 BRIDGE_SCHEMA_VERSION = 2
 DIAGNOSTIC_SCHEMA_VERSION = 1
 BACKEND_NAME = "etroute"
 STATE_COMPLETED = "COMPLETED"
 STATE_FAILED = "FAILED"
+EVENT_ROUTE = "etroute.one-shot"
 
 
 class ContractError(RuntimeError):
@@ -71,6 +79,52 @@ def validate_diagnostic(report: dict[str, Any], *, environment: str, session_id:
         raise ContractError("guest session correlation identifier did not match")
 
 
+def load_event(args: argparse.Namespace) -> EventEnvelope | None:
+    if not args.event_json and not args.event_file:
+        return None
+
+    try:
+        text = (
+            args.event_json
+            if args.event_json is not None
+            else Path(args.event_file).expanduser().resolve().read_text(encoding="utf-8")
+        )
+        event = EventEnvelope.from_json(text)
+    except (OSError, ProtocolError) as exc:
+        raise ContractError(f"invalid Event Protocol v1 input: {exc}") from exc
+
+    if event.source.lower() != "etumax":
+        raise ContractError(
+            f"ETumax bridge requires event source 'etumax', got {event.source!r}"
+        )
+    if event.is_expired():
+        raise ContractError(f"event {event.event_id!r} has expired")
+    return event
+
+
+def resolve_correlation(
+    args: argparse.Namespace,
+    event: EventEnvelope | None,
+) -> tuple[str, str]:
+    if event is not None:
+        if args.request_id and event.request_id and args.request_id != event.request_id:
+            raise ContractError("event request_id conflicts with --request-id")
+        if args.session_id and event.session_id and args.session_id != event.session_id:
+            raise ContractError("event session_id conflicts with --session-id")
+
+    request_id = (
+        args.request_id
+        or (event.request_id if event is not None else None)
+        or uuid.uuid4().hex
+    )
+    session_id = (
+        args.session_id
+        or (event.session_id if event is not None else None)
+        or uuid.uuid4().hex
+    )
+    return request_id, session_id
+
+
 def build_command(args: argparse.Namespace, session_id: str) -> list[str]:
     command = [
         args.python,
@@ -116,9 +170,48 @@ def _base_envelope(
     }
 
 
+def _event_failure_envelope(
+    args: argparse.Namespace,
+    message: str,
+    *,
+    event: EventEnvelope | None = None,
+) -> dict[str, Any]:
+    now_ms = int(time.time() * 1000)
+    request_id = args.request_id or (event.request_id if event else None) or uuid.uuid4().hex
+    session_id = args.session_id or (event.session_id if event else None) or uuid.uuid4().hex
+    envelope = _base_envelope(
+        request_id=request_id,
+        session_id=session_id,
+        environment=args.environment,
+        started_at_ms=now_ms,
+        finished_at_ms=now_ms,
+        state=STATE_FAILED,
+    )
+    envelope.update(
+        {
+            "ok": False,
+            "error": {"kind": "event_contract_error", "message": message},
+        }
+    )
+    if event is not None:
+        envelope["event"] = event.to_dict()
+        envelope["acknowledgement"] = EventAcknowledgement(
+            event_id=event.event_id,
+            accepted=False,
+            status="rejected",
+            message=message,
+        ).to_dict()
+    return envelope
+
+
 def run_bridge(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
-    request_id = args.request_id or uuid.uuid4().hex
-    session_id = args.session_id or uuid.uuid4().hex
+    event: EventEnvelope | None = None
+    try:
+        event = load_event(args)
+        request_id, session_id = resolve_correlation(args, event)
+    except ContractError as exc:
+        return _event_failure_envelope(args, str(exc), event=event), 22
+
     command = build_command(args, session_id)
     started_at_ms = int(time.time() * 1000)
 
@@ -150,6 +243,14 @@ def run_bridge(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
                 "error": {"kind": "timeout", "message": str(exc)},
             }
         )
+        if event is not None:
+            envelope["event"] = event.to_dict()
+            envelope["acknowledgement"] = EventAcknowledgement(
+                event_id=event.event_id,
+                accepted=False,
+                status="rejected",
+                message="ETroute one-shot handshake timed out",
+            ).to_dict()
         return envelope, 20
     except OSError as exc:
         finished_at_ms = int(time.time() * 1000)
@@ -167,6 +268,14 @@ def run_bridge(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
                 "error": {"kind": "launch_error", "message": str(exc)},
             }
         )
+        if event is not None:
+            envelope["event"] = event.to_dict()
+            envelope["acknowledgement"] = EventAcknowledgement(
+                event_id=event.event_id,
+                accepted=False,
+                status="rejected",
+                message="ETroute one-shot handshake could not launch",
+            ).to_dict()
         return envelope, 20
 
     finished_at_ms = int(time.time() * 1000)
@@ -195,6 +304,14 @@ def run_bridge(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
                 "error": {"kind": "contract_error", "message": str(exc)},
             }
         )
+        if event is not None:
+            envelope["event"] = event.to_dict()
+            envelope["acknowledgement"] = EventAcknowledgement(
+                event_id=event.event_id,
+                accepted=False,
+                status="rejected",
+                message=str(exc),
+            ).to_dict()
         return envelope, 21
 
     envelope = _base_envelope(
@@ -216,13 +333,25 @@ def run_bridge(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             "diagnostic": diagnostic,
         }
     )
+    if event is not None:
+        envelope["event"] = event.to_dict()
+        envelope["acknowledgement"] = EventAcknowledgement(
+            event_id=event.event_id,
+            accepted=True,
+            route=EVENT_ROUTE,
+            status="accepted",
+            message=(
+                "validated by the ETroute one-shot bridge; "
+                "persistent Android delivery is not implied"
+            ),
+        ).to_dict()
     return envelope, 0
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("environment")
-    parser.add_argument("--etroute", default=str(Path(__file__).resolve().parents[1] / "etroute.py"))
+    parser.add_argument("--etroute", default=str(ROOT / "etroute.py"))
     parser.add_argument("--python", default=sys.executable, help="host Python used to launch etroute.py")
     parser.add_argument("--guest-python", default="/usr/bin/env")
     parser.add_argument("--proot", default="proot")
@@ -231,6 +360,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeout", type=int, default=60)
     parser.add_argument("--request-id")
     parser.add_argument("--session-id")
+    event_group = parser.add_mutually_exclusive_group()
+    event_group.add_argument("--event-json", help="inline ETroute Event Protocol v1 JSON object")
+    event_group.add_argument("--event-file", type=Path, help="path to an Event Protocol v1 JSON file")
     parser.add_argument("--json-out", type=Path)
     return parser
 
