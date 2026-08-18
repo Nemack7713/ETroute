@@ -14,6 +14,8 @@ from enum import Enum
 from pathlib import Path, PurePosixPath
 from typing import Mapping, Sequence
 
+from proot_launch_spec import LaunchBind, ProotLaunchSpec, build_proot_argv
+
 
 class ExecutionState(str, Enum):
     STARTING = "starting"
@@ -85,6 +87,14 @@ class RootfsBind:
         suffix = "!" if validated.no_dereference else ""
         return f"{validated.host}:{validated.guest}{suffix}"
 
+    def to_launch_bind(self) -> LaunchBind:
+        validated = self.validate()
+        return LaunchBind(
+            host=str(validated.host),
+            guest=validated.guest,
+            no_dereference=validated.no_dereference,
+        )
+
 
 @dataclass(frozen=True)
 class ProotConfig:
@@ -126,6 +136,20 @@ class ProotConfig:
             kernel_release=self.kernel_release,
             guest_working_directory=self.guest_working_directory,
         )
+
+    def to_launch_spec(self, request: ExecutionRequest) -> ProotLaunchSpec:
+        config = self.validate()
+        request = request.validate()
+        return ProotLaunchSpec(
+            rootfs=str(config.rootfs),
+            command=(request.executable, *request.arguments),
+            binds=tuple(bind.to_launch_bind() for bind in config.binds),
+            root_id=config.root_id,
+            kill_on_exit=config.kill_on_exit,
+            kernel_release=config.kernel_release,
+            guest_working_directory=config.guest_working_directory,
+            environment=request.environment,
+        ).validate()
 
 
 class ExecutionBackend(ABC):
@@ -272,6 +296,7 @@ class ProotBackend(ExecutionBackend):
                         config.kill_on_exit and self._supports_kill_on_exit
                     ).lower(),
                     "bind_count": str(len(config.binds)),
+                    "launch_schema": "1",
                 },
             )
         except (OSError, ValueError) as exc:
@@ -329,31 +354,12 @@ class ProotBackend(ExecutionBackend):
         return _terminate_process(process)
 
     def _build_argv(self, request: ExecutionRequest) -> list[str]:
-        config = self._config.validate()
-        argv = [self._resolved_binary, "--rootfs", str(config.rootfs)]
-
-        if config.root_id:
-            argv.append("--root-id")
-
-        if config.kernel_release:
-            argv.append(f"--kernel-release={config.kernel_release}")
-
-        if config.kill_on_exit and self._supports_kill_on_exit:
-            argv.append("--kill-on-exit")
-
-        seen_guests: set[str] = set()
-        for bind in config.binds:
-            validated = bind.validate()
-            if validated.guest in seen_guests:
-                raise ValueError(f"duplicate guest bind target: {validated.guest}")
-            seen_guests.add(validated.guest)
-            argv.extend(("--bind", validated.serialize()))
-
-        if config.guest_working_directory:
-            argv.extend(("--cwd", config.guest_working_directory))
-
-        argv.extend(("--", request.executable, *request.arguments))
-        return argv
+        spec = self._config.to_launch_spec(request)
+        return build_proot_argv(
+            self._resolved_binary,
+            spec,
+            supports_kill_on_exit=self._supports_kill_on_exit,
+        )
 
     def _probe_flag(self, flag: str) -> bool:
         try:
