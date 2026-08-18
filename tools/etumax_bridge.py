@@ -80,14 +80,17 @@ def validate_diagnostic(report: dict[str, Any], *, environment: str, session_id:
 
 
 def load_event(args: argparse.Namespace) -> EventEnvelope | None:
-    if not args.event_json and not args.event_file:
+    event_json = getattr(args, "event_json", None)
+    event_file = getattr(args, "event_file", None)
+
+    if not event_json and not event_file:
         return None
 
     try:
         text = (
-            args.event_json
-            if args.event_json is not None
-            else Path(args.event_file).expanduser().resolve().read_text(encoding="utf-8")
+            event_json
+            if event_json is not None
+            else Path(event_file).expanduser().resolve().read_text(encoding="utf-8")
         )
         event = EventEnvelope.from_json(text)
     except (OSError, ProtocolError) as exc:
