@@ -26,28 +26,30 @@ The native supervisor owns:
 - RLIMIT_CPU
 - RLIMIT_NOFILE
 - RLIMIT_FSIZE
-- adaptive RLIMIT_AS
+- explicit opt-in RLIMIT_AS
 - absolute execve with no post-fork PATH search
 
 ADVISORY MEMORY POLICY
 ----------------------
-When maxAddressSpaceBytes is zero, ETroute uses a high-but-bounded automatic
-address-space allowance:
+ETroute still reports a high-level address-space advisory for diagnostics and
+physical-device validation:
 
   75% of visible physical RAM
   minimum 1 GiB
   maximum 8 GiB
-  no automatic RLIMIT_AS below 2 GiB physical RAM
+  disabled below 2 GiB physical RAM
 
-This is intentionally an address-space limit, not a request to consume that
-amount of resident memory. Android remains free to apply its own process and
-system memory policy. Callers may provide an explicit lower cap when a workload
-requires tighter control.
+This value is telemetry only. It is never automatically fed into RLIMIT_AS.
+A maxAddressSpaceBytes value of zero means that ETroute leaves the inherited
+virtual-address-space limit unchanged. A non-zero value is an explicit caller-
+supplied hard RLIMIT_AS and should be used with care on 64-bit Android, where
+Bionic/Scudo and the dynamic linker may reserve large sparse virtual regions.
 
 The default device-validation workload also uses:
 - maxOpenFiles = 4096
 - maxFileBytes = 1 GiB
 - cpuSeconds = 0 (no ETroute CPU-time cap)
+- maxAddressSpaceBytes = 0 (no ETroute RLIMIT_AS)
 
 ANDROID TOOLCHAIN
 -----------------
@@ -127,12 +129,12 @@ The preferred final test is now one tap on the physical Android device:
 
 The app verifies:
 - System.loadLibrary + JNI ABI v1
-- successful NativeSupervisor round trip
+- successful NativeSupervisor round trip with default RLIMIT_AS disabled
 - execve failure stage/errno preservation
 - timeout/process-group termination
 - workspace escape rejection before JNI
 - output preservation + session finalization
-- advisory maximum memory policy
+- advisory maximum memory policy as telemetry only
 
 For an ADB-connected device, the deeper instrumentation gate remains:
 
