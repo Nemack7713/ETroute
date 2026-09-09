@@ -151,4 +151,71 @@ class NativeSupervisorJniTest {
         assertTrue(result.succeeded)
         assertEquals("64", File(prepared.stdoutPath).readText().trim())
     }
+
+    @Test
+    fun sessionRunnerSmokeCreatesIntentionalOutput() {
+        val run = EtRouteSessionRunner(context).runSystemSmoke()
+        assertTrue(run.result.succeeded)
+        assertEquals(
+            "ETROUTE_ANDROID_SMOKE_OK",
+            File(run.paths.diagnostics, "stdout.log").readText()
+        )
+        assertEquals(
+            "ETROUTE_ANDROID_SMOKE_OK",
+            File(run.paths.output, "etroute-smoke.txt").readText()
+        )
+    }
+
+    @Test
+    fun preparedLaunchValidatorRejectsWorkspaceEscape() {
+        val sessionId = "escape-${UUID.randomUUID()}"
+        val paths = EtRouteWorkspaceManager(context).create(sessionId)
+        val launch = PreparedLaunch(
+            executable = "/system/bin/sh",
+            arguments = listOf("-c", "true"),
+            environment = mapOf("PATH" to "/system/bin"),
+            workingDirectory = context.cacheDir.absolutePath,
+            stdoutPath = File(paths.diagnostics, "stdout.log").absolutePath,
+            stderrPath = File(paths.diagnostics, "stderr.log").absolutePath,
+            sessionId = sessionId,
+            requestId = "request-${UUID.randomUUID()}",
+            originTag = "androidTest:workspace-escape"
+        )
+
+        var rejected = false
+        try {
+            PreparedLaunchValidator(context, paths).validate(launch)
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
+        assertTrue(rejected)
+    }
+
+    @Test
+    fun finalizerPreservesOutputAndBoundsDiagnostics() {
+        val sessionId = "finalize-${UUID.randomUUID()}"
+        val paths = EtRouteWorkspaceManager(context).create(sessionId)
+        File(paths.output, "result.txt").writeText("keep")
+        File(paths.input, "input.txt").writeText("delete")
+        File(paths.tmp, "tmp.txt").writeText("delete")
+        File(paths.diagnostics, "stdout.log").writeText("x".repeat(4096))
+        File(paths.diagnostics, "other.log").writeText("delete")
+
+        val result = RuntimeSessionFinalizer().finalize(
+            SessionFinalizationRequest(
+                paths = paths,
+                preserveOutput = true,
+                retainDiagnostics = true,
+                maxDiagnosticBytesPerFile = 1024
+            )
+        )
+
+        assertTrue(result.cleaned)
+        assertTrue(result.outputPreserved)
+        assertEquals("keep", File(paths.output, "result.txt").readText())
+        assertFalse(paths.input.exists())
+        assertFalse(paths.tmp.exists())
+        assertEquals(1024L, File(paths.diagnostics, "stdout.log").length())
+        assertFalse(File(paths.diagnostics, "other.log").exists())
+    }
 }
