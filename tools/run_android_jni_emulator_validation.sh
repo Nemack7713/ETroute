@@ -13,6 +13,7 @@ SERIAL="emulator-${EMULATOR_PORT}"
 EVIDENCE_DIR="$ROOT_DIR/evidence/android_jni/latest"
 EMULATOR_LOG="$EVIDENCE_DIR/emulator-${SERIAL}.log"
 BOOT_LOG="$EVIDENCE_DIR/emulator-${SERIAL}-boot.txt"
+KVM_LOG="$EVIDENCE_DIR/kvm-access.txt"
 mkdir -p "$EVIDENCE_DIR"
 
 if [[ ! -e /dev/kvm ]]; then
@@ -74,6 +75,37 @@ for tool in "$SDKMANAGER" "$AVDMANAGER" "$ADB"; do
   fi
 done
 
+write_kvm_evidence() {
+  {
+    echo "user=$(id -un)"
+    echo "uid=$(id -u)"
+    echo "groups=$(id -Gn)"
+    echo "device=$(ls -l /dev/kvm 2>&1 || true)"
+    echo "device_stat=$(stat -c 'mode=%A uid=%u gid=%g owner=%U group=%G' /dev/kvm 2>&1 || true)"
+    echo "readable=$([[ -r /dev/kvm ]] && echo true || echo false)"
+    echo "writable=$([[ -w /dev/kvm ]] && echo true || echo false)"
+    echo "kvm_group=$(getent group kvm 2>&1 || true)"
+  } > "$KVM_LOG"
+}
+
+explain_kvm_permission_failure() {
+  write_kvm_evidence
+  echo "[ETroute] ERROR: /dev/kvm exists, but the current Codespaces user cannot use it." >&2
+  echo "[ETroute] KVM evidence: $KVM_LOG" >&2
+  cat "$KVM_LOG" >&2
+  echo >&2
+  echo "[ETroute] This is a permission/access problem, not an ETroute JNI or emulator-image failure." >&2
+  echo "[ETroute] Preferred immediate repair for this ephemeral Codespace:" >&2
+  echo "  sudo apt-get update && sudo apt-get install -y acl" >&2
+  echo "  sudo setfacl -m u:\"\$USER\":rw /dev/kvm" >&2
+  echo >&2
+  echo "[ETroute] Then verify acceleration before rerunning:" >&2
+  echo "  $SDK_ROOT/emulator/emulator -accel-check" >&2
+  echo >&2
+  echo "[ETroute] If ACL changes are blocked by the Codespaces host, do not weaken ETroute or disable acceleration." >&2
+  echo "[ETroute] Use a reachable physical Android device/emulator for JNI_DEVICE_VERIFIED instead." >&2
+}
+
 if "$ADB" devices | awk 'NR>1 && $1 == "'"$SERIAL"'" && $2 == "device" {found=1} END {exit !found}'; then
   echo "[ETroute] Existing emulator already ready: $SERIAL"
 else
@@ -84,6 +116,27 @@ else
     echo "[ETroute] ERROR: emulator binary missing after package installation: $EMULATOR" >&2
     exit 2
   fi
+
+  # /dev/kvm existing is not enough. The user must be able to open it read/write,
+  # and the Android emulator must report usable acceleration.
+  if [[ ! -r /dev/kvm || ! -w /dev/kvm ]]; then
+    explain_kvm_permission_failure
+    exit 10
+  fi
+
+  write_kvm_evidence
+  set +e
+  ACCEL_OUTPUT="$($EMULATOR -accel-check 2>&1)"
+  ACCEL_STATUS=$?
+  set -e
+  printf '%s\n' "$ACCEL_OUTPUT" >> "$KVM_LOG"
+  if [[ $ACCEL_STATUS -ne 0 ]] || ! grep -Eqi 'accel|KVM' <<<"$ACCEL_OUTPUT"; then
+    echo "[ETroute] ERROR: Android Emulator acceleration check failed." >&2
+    echo "$ACCEL_OUTPUT" >&2
+    explain_kvm_permission_failure
+    exit 10
+  fi
+  echo "[ETroute] KVM acceleration check passed."
 
   echo "[ETroute] Discovering an Android API 36 x86_64 system image."
   SDK_LIST="$($SDKMANAGER --sdk_root="$SDK_ROOT" --list 2>/dev/null || true)"
@@ -128,8 +181,6 @@ else
     exit 9
   fi
 
-  # A previous failed launch may have left a partially-created userdata image.
-  # This AVD exists only for ETroute validation, so reset its writable images.
   AVD_DIR="$HOME/.android/avd/${AVD_NAME}.avd"
   if [[ -d "$AVD_DIR" ]]; then
     rm -f \
@@ -211,7 +262,6 @@ if [[ "$ABI" != "x86_64" ]]; then
   exit 8
 fi
 
-# Reduce test flakiness from first-boot UI animation state.
 "$ADB" -s "$SERIAL" shell settings put global window_animation_scale 0 >/dev/null 2>&1 || true
 "$ADB" -s "$SERIAL" shell settings put global transition_animation_scale 0 >/dev/null 2>&1 || true
 "$ADB" -s "$SERIAL" shell settings put global animator_duration_scale 0 >/dev/null 2>&1 || true
