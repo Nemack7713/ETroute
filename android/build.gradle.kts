@@ -6,6 +6,8 @@ plugins {
 android {
     namespace = "org.nemack.universalfilelab.etroute"
     compileSdk = 36
+    buildToolsVersion = "35.0.0"
+    ndkVersion = "27.0.12077973"
 
     defaultConfig {
         minSdk = 24
