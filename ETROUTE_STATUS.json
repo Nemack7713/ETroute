@@ -1,17 +1,18 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "project": "ETroute",
   "release": "v10-device-final",
-  "overall_status": "RLIMIT_AS_POLICY_PATCHED_BUILD_REVALIDATION_REQUIRED_PHYSICAL_DEVICE_GATE_PENDING",
+  "overall_status": "PHYSICAL_DEVICE_VALIDATED",
   "execution_policy": {
     "primary_backend": "native_supervisor",
     "proot_participates_in_execution_path": false,
     "post_fork_policy": "child-side syscall-only setup followed by execve",
     "jni_result_abi_version": 1,
-    "jni_result_field_count": 7
+    "jni_result_field_count": 7,
+    "native_policy_version": 2
   },
   "native_supervisor": {
-    "status": "RLIMIT_AS_OPT_IN_PATCHED_REBUILD_REQUIRED",
+    "status": "PHYSICALLY_VERIFIED_ARM64_ANDROID15",
     "features": [
       "C++20 NDK shared library",
       "CLOEXEC child error pipe",
@@ -29,24 +30,20 @@
       "automatic_rlimit_as_when_explicit_limit_is_zero": false,
       "zero_means_inherit_address_space_limit": true,
       "explicit_nonzero_limit_supported": true,
+      "physical_device_observed_parent_soft": "RLIM_INFINITY",
+      "physical_device_observed_parent_hard": "RLIM_INFINITY",
       "advisory_telemetry": {
         "physical_ram_fraction": 0.75,
         "floor_bytes": 1073741824,
         "ceiling_bytes": 8589934592,
         "disabled_below_physical_ram_bytes": 2147483648,
         "enforced_as_rlimit": false
-      },
-      "reason": "64-bit Android uses large sparse virtual mappings; a RAM-derived RLIMIT_AS can abort Bionic/Scudo startup even when resident memory is low"
+      }
     }
   },
   "android_build_validation": {
-    "status": "REVALIDATION_REQUIRED_AFTER_RLIMIT_AS_POLICY_PATCH",
-    "previously_verified_abis": ["arm64-v8a", "x86_64"],
-    "verified_exports": [
-      "Java_org_nemack_universalfilelab_etroute_JniNativeSupervisor_nativeAbiVersion",
-      "Java_org_nemack_universalfilelab_etroute_JniNativeSupervisor_nativeRun"
-    ],
-    "revalidation_command": "ETROUTE_BUILD_ONLY=1 bash tools/run_android_jni_validation.sh",
+    "status": "BUILT_AND_PACKAGED_FOR_PHYSICAL_GATE",
+    "verified_abis": ["arm64-v8a", "x86_64"],
     "toolchain": {
       "compile_sdk": 36,
       "target_sdk": 36,
@@ -60,7 +57,7 @@
     }
   },
   "android_runtime_layer": {
-    "status": "IMPLEMENTED_DEVICE_REVALIDATION_PENDING",
+    "status": "PHYSICALLY_VERIFIED",
     "features": [
       "PreparedLaunch canonical path validation",
       "approved executable roots",
@@ -76,36 +73,39 @@
     ]
   },
   "device_validator_app": {
-    "status": "REBUILD_AND_RERUN_REQUIRED",
+    "status": "PHYSICAL_DEVICE_PASS",
     "module": ":device-validator",
-    "build_command": "bash tools/build_device_validator.sh",
     "expected_apk": "dist/ETroute-Device-Validator-debug.apk",
-    "one_tap_checks": [
-      "JNI ABI v1 handshake",
-      "successful native round trip with default RLIMIT_AS disabled",
-      "execve failure stage and errno",
-      "timeout process-group cleanup",
-      "workspace escape rejection before JNI",
-      "output preservation and finalization",
-      "advisory maximum memory policy telemetry"
-    ]
+    "validated_device": {
+      "manufacturer": "nubia",
+      "model": "NX729J",
+      "android": 15,
+      "api": 35,
+      "primary_abi": "arm64-v8a",
+      "ram_total_mib": 11280,
+      "native_policy_version": 2
+    }
   },
   "final_device_gate": {
-    "status": "PENDING_RLIMIT_AS_PATCH_RETEST_ON_PHYSICAL_DEVICE",
-    "preferred_manual_flow": [
-      "build ETroute-Device-Validator-debug.apk",
-      "install APK on physical arm64 Android device",
-      "open ETroute Validator",
-      "tap RUN ETROUTE TEST",
-      "copy report and report any failed step"
-    ],
-    "adb_command": "bash tools/run_physical_device_final_test.sh",
-    "required_device_abi": "arm64-v8a"
+    "status": "PASSED",
+    "date": "2026-09-09",
+    "evidence": "evidence/physical-device/nubia-NX729J-android15-api35-2026-09-09.txt",
+    "checks": {
+      "jni_abi_v1": "PASS",
+      "native_supervisor_success_round_trip": "PASS",
+      "execve_failure_stage_errno": "PASS",
+      "timeout_process_group_cleanup": "PASS",
+      "prepared_launch_workspace_escape_rejection": "PASS",
+      "advisory_memory_policy_telemetry": "PASS"
+    },
+    "timeout_observation": {
+      "stage": "TIMEOUT_KILL",
+      "signal": 9,
+      "duration_ms": 511
+    }
   },
   "known_issues": [
-    "The previous physical-device run on nubia NX729J showed SIGABRT after successful execve when the automatic 8 GiB RLIMIT_AS policy was active.",
-    "The timeout test in that run was not meaningful because the shell aborted before its deadline.",
-    "The RLIMIT_AS policy is now opt-in and requires build revalidation plus a repeat of the six physical-device checks.",
-    "Codespaces exposes /dev/kvm but the current user may lack permission to use KVM; this does not replace the physical-device gate."
-  ]
+    "Codespaces may expose /dev/kvm without granting the Codespaces user permission to use KVM; this does not affect the completed physical-device gate."
+  ],
+  "next_slice": "PreparedLaunch / RuntimePack integration above the frozen NativeSupervisor boundary"
 }
