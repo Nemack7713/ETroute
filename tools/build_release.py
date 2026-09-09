@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 FIXED_ZIP_TIME = (2026, 1, 1, 0, 0, 0)
-EXCLUDED_PARTS = {"__pycache__", ".git", ".pytest_cache", ".mypy_cache"}
+EXCLUDED_PARTS = {"__pycache__", ".git", ".pytest_cache", ".mypy_cache", ".gradle", "build"}
 EXCLUDED_SUFFIXES = {".pyc", ".pyo"}
 REQUIRED_MODULES = (
     "etroute.py",
@@ -24,7 +24,9 @@ REQUIRED_MODULES = (
     "tools/etumax_bridge.py",
     "tools/build_release.py",
     "tools/android_device_validation.py",
+    "tools/verify_android_jni_build.py",
 )
+DEFAULT_MINIMUM_TESTS = 18
 
 
 def sha256_file(path: Path) -> str:
@@ -45,7 +47,9 @@ def included_files(root: Path) -> list[Path]:
             continue
         if path.suffix in EXCLUDED_SUFFIXES:
             continue
-        if relative.parts and relative.parts[0] == "release":
+        if relative.parts and relative.parts[0] in {"release", "evidence"}:
+            continue
+        if relative.name == "local.properties":
             continue
         files.append(path)
     return sorted(files, key=lambda item: item.relative_to(root).as_posix())
@@ -114,6 +118,21 @@ def build_zip(root: Path, destination: Path, files: Sequence[Path]) -> None:
     os.replace(temporary, destination)
 
 
+def minimum_test_count(status: dict) -> int:
+    try:
+        return int(status["local_validation"]["unit_tests"]["minimum_expected_tests"])
+    except (KeyError, TypeError, ValueError):
+        return DEFAULT_MINIMUM_TESTS
+
+
+def android_status(status: dict) -> str:
+    if isinstance(status.get("final_device_gate"), dict):
+        return str(status["final_device_gate"].get("status", "UNKNOWN"))
+    if isinstance(status.get("android_validation"), dict):
+        return str(status["android_validation"].get("status", "UNKNOWN"))
+    return "UNKNOWN"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
@@ -130,17 +149,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not status_path.is_file():
         raise SystemExit("ETROUTE_STATUS.json is required")
     status = json.loads(status_path.read_text(encoding="utf-8"))
+
     compile_modules(root)
     test_count, _ = run_tests(root)
-    minimum = int(status["local_validation"]["unit_tests"]["minimum_expected_tests"])
+    minimum = minimum_test_count(status)
     if test_count < minimum:
         raise SystemExit(f"expected at least {minimum} tests, observed {test_count}")
+
     files = included_files(root)
     source_digest = tree_digest(root, files)
     build_zip(root, output, files)
     artifact_digest = sha256_file(output)
+
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "project": "ETroute",
         "release": status.get("release"),
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -159,9 +181,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         "validation": {
             "compiled_modules": list(REQUIRED_MODULES),
             "unit_tests_passed": test_count,
-            "android_status": status["android_validation"]["status"]
+            "native_build_status": status.get("native_supervisor", {}).get("status", "UNKNOWN"),
+            "jni_build_status": status.get("android_build_validation", {}).get("status", "UNKNOWN"),
+            "android_device_status": android_status(status)
         }
     }
+
     manifest_path = (args.release_manifest or output.with_suffix(".release.json")).expanduser().resolve()
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
