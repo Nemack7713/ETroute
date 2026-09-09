@@ -84,6 +84,12 @@ data class NativeRunResult(
             exitCode == 0
 }
 
+data class NativeAddressSpaceLimit(
+    val errno: Int,
+    val soft: Long,
+    val hard: Long
+)
+
 class JniNativeSupervisor {
 
     init {
@@ -95,6 +101,8 @@ class JniNativeSupervisor {
     }
 
     private external fun nativeAbiVersion(): Long
+    private external fun nativePolicyVersion(): Long
+    private external fun nativeAddressSpaceLimit(): LongArray
 
     private external fun nativeRun(
         executable: String,
@@ -112,6 +120,20 @@ class JniNativeSupervisor {
     ): LongArray
 
     fun abiVersionForValidation(): Long = nativeAbiVersion()
+
+    fun policyVersionForValidation(): Long = nativePolicyVersion()
+
+    fun addressSpaceLimitForValidation(): NativeAddressSpaceLimit {
+        val raw = nativeAddressSpaceLimit()
+        require(raw.size == ADDRESS_SPACE_LIMIT_FIELD_COUNT) {
+            "ETroute RLIMIT_AS diagnostic size mismatch: expected=$ADDRESS_SPACE_LIMIT_FIELD_COUNT actual=${raw.size}"
+        }
+        return NativeAddressSpaceLimit(
+            errno = raw[0].toInt(),
+            soft = raw[1],
+            hard = raw[2]
+        )
+    }
 
     fun run(launch: PreparedLaunch): NativeRunResult {
         val raw = nativeRun(
@@ -153,6 +175,7 @@ class JniNativeSupervisor {
         private const val LIBRARY_NAME = "etroute_native_supervisor"
         private const val EXPECTED_ABI_VERSION = 1L
         private const val RESULT_FIELD_COUNT = 7
+        private const val ADDRESS_SPACE_LIMIT_FIELD_COUNT = 3
 
         private const val FIELD_ABI_VERSION = 0
         private const val FIELD_EXIT_CODE = 1
