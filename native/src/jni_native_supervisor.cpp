@@ -42,19 +42,10 @@ static_assert(static_cast<std::int64_t>(etroute::SpawnStage::Waitpid) ==
 static_assert(static_cast<std::int64_t>(etroute::SpawnStage::TimeoutKill) ==
               static_cast<std::int64_t>(etroute::jni::SpawnStageWire::TimeoutKill));
 
-void throw_java_exception(
-    JNIEnv* env,
-    const char* class_name,
-    const char* message
-) noexcept {
+void throw_java_exception(JNIEnv* env, const char* class_name, const char* message) noexcept {
     if (env == nullptr || env->ExceptionCheck()) return;
-
     jclass exception_class = env->FindClass(class_name);
-    if (exception_class == nullptr) {
-        // FindClass leaves its own exception pending on failure.
-        return;
-    }
-
+    if (exception_class == nullptr) return;
     env->ThrowNew(exception_class, message);
     env->DeleteLocalRef(exception_class);
 }
@@ -63,49 +54,32 @@ void throw_illegal_argument(JNIEnv* env, const char* message) noexcept {
     throw_java_exception(env, "java/lang/IllegalArgumentException", message);
 }
 
-bool to_string(
-    JNIEnv* env,
-    jstring value,
-    std::string& result
-) {
+bool to_string(JNIEnv* env, jstring value, std::string& result) {
     if (value == nullptr) {
         throw_illegal_argument(env, "ETroute JNI string argument must not be null");
         return false;
     }
-
     const char* chars = env->GetStringUTFChars(value, nullptr);
-    if (chars == nullptr) {
-        // OOM or another JNI exception is already pending.
-        return false;
-    }
-
+    if (chars == nullptr) return false;
     try {
         result.assign(chars);
     } catch (...) {
         env->ReleaseStringUTFChars(value, chars);
         throw;
     }
-
     env->ReleaseStringUTFChars(value, chars);
     return !env->ExceptionCheck();
 }
 
-bool to_strings(
-    JNIEnv* env,
-    jobjectArray array,
-    std::vector<std::string>& result
-) {
+bool to_strings(JNIEnv* env, jobjectArray array, std::vector<std::string>& result) {
     if (array == nullptr) {
         throw_illegal_argument(env, "ETroute JNI string-array argument must not be null");
         return false;
     }
-
     const jsize size = env->GetArrayLength(array);
     if (env->ExceptionCheck()) return false;
-
     result.clear();
     result.reserve(static_cast<std::size_t>(size));
-
     for (jsize i = 0; i < size; ++i) {
         jobject local = env->GetObjectArrayElement(array, i);
         if (local == nullptr) {
@@ -114,23 +88,19 @@ bool to_strings(
             }
             return false;
         }
-
         auto value = static_cast<jstring>(local);
         std::string converted;
         const bool ok = to_string(env, value, converted);
         env->DeleteLocalRef(local);
-
         if (!ok || env->ExceptionCheck()) return false;
         result.emplace_back(std::move(converted));
     }
-
     return true;
 }
 
 jlongArray pack_result(JNIEnv* env, const etroute::NativeRunResult& result) noexcept {
     using etroute::jni::ABI_VERSION;
     using etroute::jni::RESULT_FIELD_COUNT;
-
     const std::array<jlong, RESULT_FIELD_COUNT> values{
         ABI_VERSION,
         static_cast<jlong>(result.exit_code),
@@ -140,19 +110,10 @@ jlongArray pack_result(JNIEnv* env, const etroute::NativeRunResult& result) noex
         static_cast<jlong>(result.spawn_errno),
         static_cast<jlong>(result.stage),
     };
-
     if (env->ExceptionCheck()) return nullptr;
-
     jlongArray array = env->NewLongArray(static_cast<jsize>(values.size()));
     if (array == nullptr || env->ExceptionCheck()) return nullptr;
-
-    env->SetLongArrayRegion(
-        array,
-        0,
-        static_cast<jsize>(values.size()),
-        values.data()
-    );
-
+    env->SetLongArrayRegion(array, 0, static_cast<jsize>(values.size()), values.data());
     if (env->ExceptionCheck()) return nullptr;
     return array;
 }
@@ -163,7 +124,8 @@ bool validate_scalar_arguments(
     const jlong terminate_grace_ms,
     const jlong cpu_seconds,
     const jlong max_open_files,
-    const jlong max_file_bytes
+    const jlong max_file_bytes,
+    const jlong max_address_space_bytes
 ) noexcept {
     if (timeout_ms <= 0) {
         throw_illegal_argument(env, "timeoutMs must be greater than zero");
@@ -173,16 +135,8 @@ bool validate_scalar_arguments(
         throw_illegal_argument(env, "terminateGraceMs must not be negative");
         return false;
     }
-    if (cpu_seconds < 0) {
-        throw_illegal_argument(env, "cpuSeconds must not be negative");
-        return false;
-    }
-    if (max_open_files < 0) {
-        throw_illegal_argument(env, "maxOpenFiles must not be negative");
-        return false;
-    }
-    if (max_file_bytes < 0) {
-        throw_illegal_argument(env, "maxFileBytes must not be negative");
+    if (cpu_seconds < 0 || max_open_files < 0 || max_file_bytes < 0 || max_address_space_bytes < 0) {
+        throw_illegal_argument(env, "ETroute resource limits must not be negative");
         return false;
     }
     return true;
@@ -193,8 +147,7 @@ bool validate_scalar_arguments(
 extern "C"
 JNIEXPORT jlong JNICALL
 Java_org_nemack_universalfilelab_etroute_JniNativeSupervisor_nativeAbiVersion(
-    JNIEnv*,
-    jobject
+    JNIEnv*, jobject
 ) noexcept {
     return etroute::jni::ABI_VERSION;
 }
@@ -214,28 +167,24 @@ Java_org_nemack_universalfilelab_etroute_JniNativeSupervisor_nativeRun(
     jlong terminate_grace_ms,
     jlong cpu_seconds,
     jlong max_open_files,
-    jlong max_file_bytes
+    jlong max_file_bytes,
+    jlong max_address_space_bytes
 ) noexcept {
     try {
         if (env == nullptr) return nullptr;
-
-        if (executable_value == nullptr ||
-            argv_value == nullptr ||
-            envp_value == nullptr ||
-            cwd_value == nullptr ||
-            stdout_value == nullptr ||
-            stderr_value == nullptr) {
+        if (executable_value == nullptr || argv_value == nullptr || envp_value == nullptr ||
+            cwd_value == nullptr || stdout_value == nullptr || stderr_value == nullptr) {
             throw_illegal_argument(env, "ETroute JNI arguments must not be null");
             return nullptr;
         }
-
         if (!validate_scalar_arguments(
                 env,
                 timeout_ms,
                 terminate_grace_ms,
                 cpu_seconds,
                 max_open_files,
-                max_file_bytes)) {
+                max_file_bytes,
+                max_address_space_bytes)) {
             return nullptr;
         }
 
@@ -254,7 +203,6 @@ Java_org_nemack_universalfilelab_etroute_JniNativeSupervisor_nativeRun(
             !to_string(env, stderr_value, stderr_path)) {
             return nullptr;
         }
-
         if (env->ExceptionCheck()) return nullptr;
 
         etroute::PreparedProcess process{
@@ -270,31 +218,20 @@ Java_org_nemack_universalfilelab_etroute_JniNativeSupervisor_nativeRun(
                 .cpu_seconds = static_cast<std::uint64_t>(cpu_seconds),
                 .max_open_files = static_cast<std::uint64_t>(max_open_files),
                 .max_file_bytes = static_cast<std::uint64_t>(max_file_bytes),
+                .max_address_space_bytes = static_cast<std::uint64_t>(max_address_space_bytes),
             },
         };
 
         const etroute::NativeRunResult result = etroute::run_process(process);
         return pack_result(env, result);
     } catch (const std::bad_alloc&) {
-        throw_java_exception(
-            env,
-            "java/lang/OutOfMemoryError",
-            "ETroute native allocation failed"
-        );
+        throw_java_exception(env, "java/lang/OutOfMemoryError", "ETroute native allocation failed");
         return nullptr;
     } catch (const std::exception& error) {
-        throw_java_exception(
-            env,
-            "java/lang/RuntimeException",
-            error.what()
-        );
+        throw_java_exception(env, "java/lang/RuntimeException", error.what());
         return nullptr;
     } catch (...) {
-        throw_java_exception(
-            env,
-            "java/lang/Error",
-            "Unknown ETroute native exception"
-        );
+        throw_java_exception(env, "java/lang/Error", "Unknown ETroute native exception");
         return nullptr;
     }
 }
