@@ -20,11 +20,6 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 
-constexpr std::uint64_t MIB = 1024ULL * 1024ULL;
-constexpr std::uint64_t GIB = 1024ULL * MIB;
-constexpr std::uint64_t ADVISORY_MEMORY_CAP = 8ULL * GIB;
-constexpr std::uint64_t ADVISORY_MEMORY_FLOOR = 1ULL * GIB;
-
 struct ChildFailure {
     int stage;
     int error;
@@ -68,31 +63,6 @@ bool apply_limit(const int resource, const std::uint64_t requested) noexcept {
     );
     const rlimit value{static_cast<rlim_t>(capped), static_cast<rlim_t>(capped)};
     return ::setrlimit(resource, &value) == 0;
-}
-
-std::uint64_t advisory_address_space_limit() noexcept {
-    const long pages = ::sysconf(_SC_PHYS_PAGES);
-    const long page_size = ::sysconf(_SC_PAGESIZE);
-    if (pages <= 0 || page_size <= 0) return 0;
-
-    const auto pages_u = static_cast<std::uint64_t>(pages);
-    const auto page_size_u = static_cast<std::uint64_t>(page_size);
-    if (pages_u > std::numeric_limits<std::uint64_t>::max() / page_size_u) {
-        return ADVISORY_MEMORY_CAP;
-    }
-
-    const std::uint64_t total_bytes = pages_u * page_size_u;
-    if (total_bytes < 2ULL * ADVISORY_MEMORY_FLOOR) {
-        // Very small devices need flexibility more than an RLIMIT_AS cap.
-        return 0;
-    }
-
-    const std::uint64_t seventy_five_percent = total_bytes - (total_bytes / 4ULL);
-    return std::clamp(
-        seventy_five_percent,
-        ADVISORY_MEMORY_FLOOR,
-        ADVISORY_MEMORY_CAP
-    );
 }
 
 [[noreturn]] void child_fail(
@@ -333,15 +303,14 @@ NativeRunResult run_process(const PreparedProcess& process) noexcept {
             child_fail(error_pipe[1], SpawnStage::Setpgid, error, 121);
         }
 
-        const std::uint64_t address_space_limit =
-            process.limits.max_address_space_bytes != 0
-                ? process.limits.max_address_space_bytes
-                : advisory_address_space_limit();
-
+        // RLIMIT_AS is strictly opt-in. A zero value intentionally means
+        // "do not modify the inherited virtual-address-space limit". On
+        // 64-bit Android a RAM-derived virtual-address cap can cause Bionic/
+        // Scudo startup to abort even for small executables.
         if (!apply_limit(RLIMIT_CPU, process.limits.cpu_seconds) ||
             !apply_limit(RLIMIT_NOFILE, process.limits.max_open_files) ||
             !apply_limit(RLIMIT_FSIZE, process.limits.max_file_bytes) ||
-            !apply_limit(RLIMIT_AS, address_space_limit)) {
+            !apply_limit(RLIMIT_AS, process.limits.max_address_space_bytes)) {
             const int error = errno;
             child_fail(error_pipe[1], SpawnStage::ResourceLimit, error, 122);
         }
