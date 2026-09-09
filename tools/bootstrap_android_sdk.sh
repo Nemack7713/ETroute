@@ -48,8 +48,55 @@ export PATH="$SDK_ROOT/cmdline-tools/latest/bin:$SDK_ROOT/platform-tools:$PATH"
 
 SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
 
-echo "[ETroute] Accepting Android SDK component licenses as explicitly authorized."
-yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null
+accept_sdk_licenses() {
+  echo "[ETroute] Accepting Android SDK component licenses as explicitly authorized."
+
+  # Under `set -o pipefail`, `yes | sdkmanager --licenses` can appear to fail
+  # even when sdkmanager succeeds: once sdkmanager has consumed all required
+  # answers and exits, `yes` receives SIGPIPE (typically exit 141). Capture the
+  # sdkmanager status itself rather than treating the producer's SIGPIPE as an
+  # SDK failure.
+  set +o pipefail
+  yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses
+  local statuses=("${PIPESTATUS[@]}")
+  set -o pipefail
+
+  local sdk_status="${statuses[1]:-1}"
+  if [[ "$sdk_status" -ne 0 ]]; then
+    echo "[ETroute] ERROR: Android SDK license acceptance failed (sdkmanager=$sdk_status)." >&2
+    exit "$sdk_status"
+  fi
+
+  echo "[ETroute] Android SDK licenses accepted."
+}
+
+verify_required_components() {
+  local missing=0
+
+  check_path() {
+    local label="$1"
+    local path="$2"
+    if [[ -e "$path" ]]; then
+      echo "[ETroute] verified: $label"
+    else
+      echo "[ETroute] MISSING: $label ($path)" >&2
+      missing=1
+    fi
+  }
+
+  check_path "platform-tools/adb" "$SDK_ROOT/platform-tools/adb"
+  check_path "Android API 36 platform" "$SDK_ROOT/platforms/android-36/android.jar"
+  check_path "Build Tools 35.0.0" "$SDK_ROOT/build-tools/35.0.0/aapt2"
+  check_path "NDK 27.0.12077973" "$SDK_ROOT/ndk/27.0.12077973/source.properties"
+  check_path "CMake 3.22.1" "$SDK_ROOT/cmake/3.22.1/bin/cmake"
+
+  if [[ "$missing" -ne 0 ]]; then
+    echo "[ETroute] ERROR: Android SDK bootstrap finished with missing required components." >&2
+    exit 5
+  fi
+}
+
+accept_sdk_licenses
 
 echo "[ETroute] Installing required ETroute Android toolchain packages."
 "$SDKMANAGER" --sdk_root="$SDK_ROOT" \
@@ -59,6 +106,9 @@ echo "[ETroute] Installing required ETroute Android toolchain packages."
   "ndk;27.0.12077973" \
   "cmake;3.22.1"
 
+echo "[ETroute] Verifying installed Android toolchain components."
+verify_required_components
+
 cat > "$ROOT_DIR/local.properties" <<EOF
 sdk.dir=$SDK_ROOT
 EOF
@@ -67,6 +117,8 @@ cat <<EOF
 [ETroute] Android SDK bootstrap complete.
 [ETroute] SDK root: $SDK_ROOT
 [ETroute] local.properties updated.
+[ETroute] Note: sdkmanager currently emits a deprecation warning in favor of Android CLI;
+[ETroute] this bootstrap remains compatible while using the official command-line-tools package.
 [ETroute] Next:
   bash tools/run_android_jni_validation.sh
 EOF
