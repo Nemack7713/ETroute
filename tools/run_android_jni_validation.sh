@@ -5,17 +5,76 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 EXPECTED_GRADLE_VERSION="8.7"
+EXPECTED_JAVA_MAJOR="17"
 EVIDENCE_DIR="$ROOT_DIR/evidence/android_jni/latest"
 BUILD_LOG="$EVIDENCE_DIR/gradle-build.log"
 WRAPPER_LOG="$EVIDENCE_DIR/gradle-wrapper-bootstrap.log"
+ENV_LOG="$EVIDENCE_DIR/build-environment.txt"
 mkdir -p "$EVIDENCE_DIR"
+
+java_major_for_home() {
+  local home="$1"
+  [[ -x "$home/bin/java" ]] || return 1
+  "$home/bin/java" -version 2>&1 \
+    | head -n 1 \
+    | sed -E 's/.*version "([0-9]+).*/\1/'
+}
+
+select_jdk17() {
+  local candidates=()
+  local candidate major
+
+  if [[ -n "${JAVA_HOME:-}" ]]; then
+    candidates+=("$JAVA_HOME")
+  fi
+
+  # Common GitHub Codespaces / Ubuntu / SDKMAN locations.
+  for candidate in \
+    /usr/lib/jvm/java-17-openjdk-* \
+    /usr/lib/jvm/*17* \
+    /usr/local/sdkman/candidates/java/17* \
+    /opt/java/17*; do
+    [[ -d "$candidate" ]] && candidates+=("$candidate")
+  done
+
+  if command -v update-java-alternatives >/dev/null 2>&1; then
+    while read -r candidate; do
+      [[ -d "$candidate" ]] && candidates+=("$candidate")
+    done < <(update-java-alternatives -l 2>/dev/null | awk '$1 ~ /17/ {print $3}')
+  fi
+
+  # Deduplicate while preserving order.
+  local seen="|"
+  for candidate in "${candidates[@]}"; do
+    [[ "$seen" == *"|$candidate|"* ]] && continue
+    seen+="$candidate|"
+
+    major="$(java_major_for_home "$candidate" 2>/dev/null || true)"
+    if [[ "$major" == "$EXPECTED_JAVA_MAJOR" ]]; then
+      export JAVA_HOME="$candidate"
+      export PATH="$JAVA_HOME/bin:$PATH"
+      echo "[ETroute] Selected JDK 17: $JAVA_HOME"
+      return 0
+    fi
+  done
+
+  echo "[ETroute] ERROR: JDK 17 is required for this Gradle 8.7 / AGP 8.5.2 validation build." >&2
+  echo "[ETroute] Current Java:" >&2
+  java -version 2>&1 | head -n 3 >&2 || true
+  echo >&2
+  echo "[ETroute] No installed JDK 17 was found in common Codespaces/Ubuntu locations." >&2
+  echo "[ETroute] On Ubuntu/Codespaces, install it with:" >&2
+  echo "  sudo apt-get update && sudo apt-get install -y openjdk-17-jdk" >&2
+  echo "[ETroute] Then rerun this script; it will select JDK 17 automatically." >&2
+  exit 2
+}
 
 print_build_failure_summary() {
   local log_file="$1"
   echo
   echo "[ETroute] ===== focused Gradle failure summary =====" >&2
   grep -nEi \
-    'FAILURE: Build failed|What went wrong|Execution failed|error:|CMake Error|SDK location|Android SDK|NDK|Could not resolve|requires Gradle|Minimum supported Gradle|Maximum supported Gradle|Android Gradle plugin requires Java|Unsupported class file|Could not determine|Plugin .* was not found' \
+    'FAILURE: Build failed|What went wrong|Execution failed|error:|CMake Error|SDK location|Android SDK|NDK|Could not resolve|requires Gradle|Minimum supported Gradle|Maximum supported Gradle|Android Gradle plugin requires Java|Unsupported class file|Could not determine|Plugin .* was not found|Unsupported Java|Java version|25\.0\.4\.1' \
     "$log_file" | tail -n 100 >&2 || true
   echo "[ETroute] ===== tail of full Gradle log =====" >&2
   tail -n 140 "$log_file" >&2 || true
@@ -31,10 +90,9 @@ bootstrap_gradle_wrapper() {
   local bootstrap_dir
   bootstrap_dir="$(mktemp -d)"
 
-  # Important: generate the wrapper in an isolated empty build. Running
-  # `gradle wrapper` directly in ETroute would configure AGP with whatever
-  # system Gradle happens to be installed in Codespaces (often newer than
-  # AGP 8.5.2 supports) before the requested 8.7 wrapper can be created.
+  # Generate the wrapper in an isolated empty build. Running `gradle wrapper`
+  # directly in ETroute would configure AGP using the system Gradle before the
+  # requested 8.7 wrapper can be created.
   cat > "$bootstrap_dir/settings.gradle" <<'EOF'
 rootProject.name = 'etroute-wrapper-bootstrap'
 EOF
@@ -79,6 +137,18 @@ wrapper_is_expected_version() {
   grep -q "gradle-${EXPECTED_GRADLE_VERSION}-bin.zip" "$properties"
 }
 
+# Gradle 8.7 does not support running on JDK 25. Codespaces currently may
+# expose OpenJDK 25.0.4.1 by default, while this Android harness is pinned to
+# AGP 8.5.2 / Gradle 8.7 / JDK 17. Select JDK 17 before *any* Gradle command.
+select_jdk17
+
+{
+  echo "JAVA_HOME=$JAVA_HOME"
+  echo "PATH=$PATH"
+  echo
+  java -version 2>&1
+} > "$ENV_LOG"
+
 if ! wrapper_is_expected_version; then
   echo "[ETroute] A compatible Gradle wrapper was not found."
   bootstrap_gradle_wrapper
@@ -86,11 +156,16 @@ fi
 
 GRADLE=("./gradlew")
 
-echo "[ETroute] Verifying Gradle wrapper version."
+echo "[ETroute] Verifying Gradle wrapper and JVM."
 GRADLE_VERSION_OUTPUT="$("${GRADLE[@]}" --version --console=plain 2>&1)"
-echo "$GRADLE_VERSION_OUTPUT" | sed -n '1,8p'
+echo "$GRADLE_VERSION_OUTPUT" | sed -n '1,14p'
 if ! grep -q "Gradle $EXPECTED_GRADLE_VERSION" <<<"$GRADLE_VERSION_OUTPUT"; then
   echo "[ETroute] ERROR: expected Gradle $EXPECTED_GRADLE_VERSION wrapper." >&2
+  exit 2
+fi
+if ! grep -Eq 'JVM: +17([. ]|$)' <<<"$GRADLE_VERSION_OUTPUT"; then
+  echo "[ETroute] ERROR: Gradle is not running on JDK 17." >&2
+  echo "[ETroute] Environment evidence: $ENV_LOG" >&2
   exit 2
 fi
 
