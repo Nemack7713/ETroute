@@ -27,6 +27,7 @@ struct NativeResourceLimits {
     std::uint64_t cpu_seconds = 0;
     std::uint64_t max_open_files = 0;
     std::uint64_t max_file_bytes = 0;
+    std::uint64_t max_address_space_bytes = 0;
 };
 
 struct PreparedProcess {
