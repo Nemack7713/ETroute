@@ -5,10 +5,9 @@ import android.app.ActivityManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.graphics.Color
-import android.os.Bundle
 import android.os.Build
+import android.os.Bundle
 import android.view.Gravity
-import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -119,7 +118,7 @@ class MainActivity : Activity() {
         val lines = mutableListOf<String>()
         var failures = 0
 
-        fun check(name: String, block: () -> String) {
+        fun step(name: String, block: () -> String) {
             try {
                 val detail = block()
                 lines += "[PASS] $name${if (detail.isBlank()) "" else " — $detail"}"
@@ -144,17 +143,15 @@ class MainActivity : Activity() {
         val workspaceManager = EtRouteWorkspaceManager(applicationContext)
         val finalizer = RuntimeSessionFinalizer()
 
-        check("JNI ABI v1 handshake") {
+        step("JNI ABI v1 handshake") {
             val abi = supervisor.abiVersionForValidation()
             check(abi == 1L) { "expected ABI 1, got $abi" }
             "abi=$abi"
         }
 
         var smokeSessionRoot: File? = null
-        check("NativeSupervisor success round-trip") {
-            val run = EtRouteSessionRunner(applicationContext, supervisor).runSystemSmoke(
-                timeoutMs = 15_000
-            )
+        step("NativeSupervisor success round-trip") {
+            val run = EtRouteSessionRunner(applicationContext, supervisor).runSystemSmoke(timeoutMs = 15_000)
             smokeSessionRoot = run.paths.root
             check(run.result.succeeded) { "result=${run.result}" }
             val stdout = File(run.paths.diagnostics, "stdout.log").readText()
@@ -177,7 +174,7 @@ class MainActivity : Activity() {
             "stage=${run.result.stage} exit=${run.result.exitCode} output=${artifact.path}"
         }
 
-        check("EXECVE failure preserves stage/errno") {
+        step("EXECVE failure preserves stage/errno") {
             val paths = workspaceManager.create("execfail-${UUID.randomUUID()}")
             try {
                 val result = supervisor.run(
@@ -197,7 +194,7 @@ class MainActivity : Activity() {
             }
         }
 
-        check("Timeout kills process group") {
+        step("Timeout kills process group") {
             val paths = workspaceManager.create("timeout-${UUID.randomUUID()}")
             try {
                 val result = supervisor.run(
@@ -218,7 +215,7 @@ class MainActivity : Activity() {
             }
         }
 
-        check("PreparedLaunch rejects workspace escape before JNI") {
+        step("PreparedLaunch rejects workspace escape before JNI") {
             val paths = workspaceManager.create("escape-${UUID.randomUUID()}")
             try {
                 val candidate = launch(
@@ -239,7 +236,7 @@ class MainActivity : Activity() {
             }
         }
 
-        check("Advisory maximum memory policy") {
+        step("Advisory maximum memory policy") {
             if (memory.totalBytes >= 2L * GIB) {
                 check(memory.advisoryBytes in 1L * GIB..8L * GIB) {
                     "advisory=${memory.advisoryBytes}"
@@ -247,7 +244,7 @@ class MainActivity : Activity() {
             } else {
                 check(memory.advisoryBytes == 0L) { "small-device policy should be uncapped" }
             }
-            "${if (memory.advisoryBytes == 0L) "uncapped" else "${memory.advisoryBytes / MIB} MiB"}"
+            if (memory.advisoryBytes == 0L) "uncapped" else "${memory.advisoryBytes / MIB} MiB"
         }
 
         lines += ""
