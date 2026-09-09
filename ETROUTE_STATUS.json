@@ -2,7 +2,7 @@
   "schema_version": 3,
   "project": "ETroute",
   "release": "v10-device-final",
-  "overall_status": "CODE_COMPLETE_BUILD_REVALIDATION_REQUIRED_PHYSICAL_DEVICE_GATE_PENDING",
+  "overall_status": "RLIMIT_AS_POLICY_PATCHED_BUILD_REVALIDATION_REQUIRED_PHYSICAL_DEVICE_GATE_PENDING",
   "execution_policy": {
     "primary_backend": "native_supervisor",
     "proot_participates_in_execution_path": false,
@@ -11,7 +11,7 @@
     "jni_result_field_count": 7
   },
   "native_supervisor": {
-    "status": "IMPLEMENTED_REBUILD_REQUIRED",
+    "status": "RLIMIT_AS_OPT_IN_PATCHED_REBUILD_REQUIRED",
     "features": [
       "C++20 NDK shared library",
       "CLOEXEC child error pipe",
@@ -22,20 +22,25 @@
       "RLIMIT_CPU",
       "RLIMIT_NOFILE",
       "RLIMIT_FSIZE",
-      "adaptive RLIMIT_AS",
+      "explicit opt-in RLIMIT_AS",
       "absolute execve path"
     ],
     "memory_policy": {
-      "automatic_when_explicit_limit_is_zero": true,
-      "physical_ram_fraction": 0.75,
-      "floor_bytes": 1073741824,
-      "ceiling_bytes": 8589934592,
-      "disabled_below_physical_ram_bytes": 2147483648,
-      "reason": "high-but-bounded address-space allowance with Android/system headroom"
+      "automatic_rlimit_as_when_explicit_limit_is_zero": false,
+      "zero_means_inherit_address_space_limit": true,
+      "explicit_nonzero_limit_supported": true,
+      "advisory_telemetry": {
+        "physical_ram_fraction": 0.75,
+        "floor_bytes": 1073741824,
+        "ceiling_bytes": 8589934592,
+        "disabled_below_physical_ram_bytes": 2147483648,
+        "enforced_as_rlimit": false
+      },
+      "reason": "64-bit Android uses large sparse virtual mappings; a RAM-derived RLIMIT_AS can abort Bionic/Scudo startup even when resident memory is low"
     }
   },
   "android_build_validation": {
-    "status": "PREVIOUS_BUILD_VERIFIED_REVALIDATION_REQUIRED_AFTER_V10_CHANGES",
+    "status": "REVALIDATION_REQUIRED_AFTER_RLIMIT_AS_POLICY_PATCH",
     "previously_verified_abis": ["arm64-v8a", "x86_64"],
     "verified_exports": [
       "Java_org_nemack_universalfilelab_etroute_JniNativeSupervisor_nativeAbiVersion",
@@ -55,7 +60,7 @@
     }
   },
   "android_runtime_layer": {
-    "status": "IMPLEMENTED_DEVICE_VALIDATION_PENDING",
+    "status": "IMPLEMENTED_DEVICE_REVALIDATION_PENDING",
     "features": [
       "PreparedLaunch canonical path validation",
       "approved executable roots",
@@ -67,26 +72,26 @@
       "intentional output preservation",
       "bounded diagnostic retention",
       "optional export sink",
-      "explicit or native-advisory address-space limit"
+      "explicit caller-supplied address-space limit only"
     ]
   },
   "device_validator_app": {
-    "status": "IMPLEMENTED_BUILD_REVALIDATION_REQUIRED",
+    "status": "REBUILD_AND_RERUN_REQUIRED",
     "module": ":device-validator",
     "build_command": "bash tools/build_device_validator.sh",
     "expected_apk": "dist/ETroute-Device-Validator-debug.apk",
     "one_tap_checks": [
       "JNI ABI v1 handshake",
-      "successful native round trip",
+      "successful native round trip with default RLIMIT_AS disabled",
       "execve failure stage and errno",
       "timeout process-group cleanup",
       "workspace escape rejection before JNI",
       "output preservation and finalization",
-      "advisory maximum memory policy"
+      "advisory maximum memory policy telemetry"
     ]
   },
   "final_device_gate": {
-    "status": "PENDING_PHYSICAL_DEVICE",
+    "status": "PENDING_RLIMIT_AS_PATCH_RETEST_ON_PHYSICAL_DEVICE",
     "preferred_manual_flow": [
       "build ETroute-Device-Validator-debug.apk",
       "install APK on physical arm64 Android device",
@@ -98,8 +103,9 @@
     "required_device_abi": "arm64-v8a"
   },
   "known_issues": [
-    "Codespaces exposes /dev/kvm but the current user lacks permission to use KVM, so emulator runtime validation was not promoted.",
-    "The authoritative remaining validation is the user's physical Android device.",
-    "v10 changes require one final build-only revalidation before distributing the validator APK."
+    "The previous physical-device run on nubia NX729J showed SIGABRT after successful execve when the automatic 8 GiB RLIMIT_AS policy was active.",
+    "The timeout test in that run was not meaningful because the shell aborted before its deadline.",
+    "The RLIMIT_AS policy is now opt-in and requires build revalidation plus a repeat of the six physical-device checks.",
+    "Codespaces exposes /dev/kvm but the current user may lack permission to use KVM; this does not replace the physical-device gate."
   ]
 }
