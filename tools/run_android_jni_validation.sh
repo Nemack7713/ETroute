@@ -218,6 +218,12 @@ fi
 echo "[ETroute] Verifying NDK build outputs and JNI exports."
 python3 tools/verify_android_jni_build.py
 
+if [[ "${ETROUTE_BUILD_ONLY:-0}" == "1" ]]; then
+  echo "[ETroute] JNI_NDK_BUILD_VERIFIED"
+  echo "[ETroute] Build-only mode complete; physical-device runtime validation intentionally deferred."
+  exit 0
+fi
+
 if ! command -v adb >/dev/null 2>&1; then
   echo "[ETroute] Build/link verification passed, but adb is not available."
   echo "[ETroute] Status may advance to JNI_NDK_BUILD_VERIFIED only."
