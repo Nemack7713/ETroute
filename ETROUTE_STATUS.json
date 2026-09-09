@@ -2,7 +2,7 @@
   "schema_version": 2,
   "project": "ETroute",
   "release": "v9-native",
-  "overall_status": "JNI_NDK_BUILD_VERIFIED_DEVICE_GATE_PENDING",
+  "overall_status": "FINAL_CODE_READY_BUILD_REVALIDATION_REQUIRED_DEVICE_GATE_PENDING",
   "execution_policy": {
     "primary_backend": "native_supervisor",
     "proot_participates_in_execution_path": false,
@@ -11,7 +11,7 @@
     "jni_result_field_count": 7
   },
   "native_supervisor": {
-    "status": "VERIFIED_BUILD_LINK",
+    "status": "IMPLEMENTED_REBUILD_REQUIRED",
     "features": [
       "C++20 NDK shared library",
       "CLOEXEC child error pipe",
@@ -27,12 +27,13 @@
     ]
   },
   "android_build_validation": {
-    "status": "JNI_NDK_BUILD_VERIFIED",
-    "abis": ["arm64-v8a", "x86_64"],
+    "status": "PREVIOUS_BUILD_VERIFIED_REVALIDATION_REQUIRED_AFTER_V9_CHANGES",
+    "previously_verified_abis": ["arm64-v8a", "x86_64"],
     "verified_exports": [
       "Java_org_nemack_universalfilelab_etroute_JniNativeSupervisor_nativeAbiVersion",
       "Java_org_nemack_universalfilelab_etroute_JniNativeSupervisor_nativeRun"
     ],
+    "revalidation_command": "ETROUTE_BUILD_ONLY=1 bash tools/run_android_jni_validation.sh",
     "toolchain": {
       "compile_sdk": 36,
       "target_sdk": 36,
