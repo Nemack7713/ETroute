@@ -2,6 +2,7 @@
 #include "etroute/native_supervisor.h"
 
 #include <jni.h>
+#include <sys/resource.h>
 
 #include <array>
 #include <cerrno>
@@ -12,6 +13,9 @@
 #include <vector>
 
 namespace {
+
+constexpr jlong NATIVE_POLICY_VERSION = 2L;
+constexpr jsize RLIMIT_DIAGNOSTIC_FIELD_COUNT = 3;
 
 static_assert(static_cast<std::int64_t>(etroute::SpawnStage::Ok) ==
               static_cast<std::int64_t>(etroute::jni::SpawnStageWire::Ok));
@@ -150,6 +154,40 @@ Java_org_nemack_universalfilelab_etroute_JniNativeSupervisor_nativeAbiVersion(
     JNIEnv*, jobject
 ) noexcept {
     return etroute::jni::ABI_VERSION;
+}
+
+extern "C"
+JNIEXPORT jlong JNICALL
+Java_org_nemack_universalfilelab_etroute_JniNativeSupervisor_nativePolicyVersion(
+    JNIEnv*, jobject
+) noexcept {
+    return NATIVE_POLICY_VERSION;
+}
+
+extern "C"
+JNIEXPORT jlongArray JNICALL
+Java_org_nemack_universalfilelab_etroute_JniNativeSupervisor_nativeAddressSpaceLimit(
+    JNIEnv* env, jobject
+) noexcept {
+    if (env == nullptr) return nullptr;
+
+    rlimit value{};
+    int error = 0;
+    if (::getrlimit(RLIMIT_AS, &value) != 0) {
+        error = errno;
+    }
+
+    const std::array<jlong, RLIMIT_DIAGNOSTIC_FIELD_COUNT> values{
+        static_cast<jlong>(error),
+        static_cast<jlong>(value.rlim_cur),
+        static_cast<jlong>(value.rlim_max),
+    };
+
+    jlongArray array = env->NewLongArray(RLIMIT_DIAGNOSTIC_FIELD_COUNT);
+    if (array == nullptr || env->ExceptionCheck()) return nullptr;
+    env->SetLongArrayRegion(array, 0, RLIMIT_DIAGNOSTIC_FIELD_COUNT, values.data());
+    if (env->ExceptionCheck()) return nullptr;
+    return array;
 }
 
 extern "C"

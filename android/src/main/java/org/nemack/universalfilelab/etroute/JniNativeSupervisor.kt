@@ -27,7 +27,10 @@ data class NativeResourceLimits(
     val cpuSeconds: Long = 0,
     val maxOpenFiles: Long = 0,
     val maxFileBytes: Long = 0,
-    /** 0 delegates to ETroute's native advisory policy: 75% of RAM, clamped to 1-8 GiB. */
+    /**
+     * 0 = do not apply RLIMIT_AS. A non-zero value is an explicit hard
+     * virtual-address-space limit and should be used with care on 64-bit Android.
+     */
     val maxAddressSpaceBytes: Long = 0
 ) {
     init {
@@ -81,6 +84,12 @@ data class NativeRunResult(
             exitCode == 0
 }
 
+data class NativeAddressSpaceLimit(
+    val errno: Int,
+    val soft: Long,
+    val hard: Long
+)
+
 class JniNativeSupervisor {
 
     init {
@@ -92,6 +101,8 @@ class JniNativeSupervisor {
     }
 
     private external fun nativeAbiVersion(): Long
+    private external fun nativePolicyVersion(): Long
+    private external fun nativeAddressSpaceLimit(): LongArray
 
     private external fun nativeRun(
         executable: String,
@@ -109,6 +120,20 @@ class JniNativeSupervisor {
     ): LongArray
 
     fun abiVersionForValidation(): Long = nativeAbiVersion()
+
+    fun policyVersionForValidation(): Long = nativePolicyVersion()
+
+    fun addressSpaceLimitForValidation(): NativeAddressSpaceLimit {
+        val raw = nativeAddressSpaceLimit()
+        require(raw.size == ADDRESS_SPACE_LIMIT_FIELD_COUNT) {
+            "ETroute RLIMIT_AS diagnostic size mismatch: expected=$ADDRESS_SPACE_LIMIT_FIELD_COUNT actual=${raw.size}"
+        }
+        return NativeAddressSpaceLimit(
+            errno = raw[0].toInt(),
+            soft = raw[1],
+            hard = raw[2]
+        )
+    }
 
     fun run(launch: PreparedLaunch): NativeRunResult {
         val raw = nativeRun(
@@ -150,6 +175,7 @@ class JniNativeSupervisor {
         private const val LIBRARY_NAME = "etroute_native_supervisor"
         private const val EXPECTED_ABI_VERSION = 1L
         private const val RESULT_FIELD_COUNT = 7
+        private const val ADDRESS_SPACE_LIMIT_FIELD_COUNT = 3
 
         private const val FIELD_ABI_VERSION = 0
         private const val FIELD_EXIT_CODE = 1

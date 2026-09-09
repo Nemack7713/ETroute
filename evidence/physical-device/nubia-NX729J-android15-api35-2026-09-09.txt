@@ -1,0 +1,27 @@
+ETroute Physical Device Validation
+==================================
+
+device=nubia NX729J
+android=15 api=35
+abis=arm64-v8a, armeabi-v7a, armeabi
+ramTotalMiB=11280
+ramAvailableMiB=4002
+advisoryAddressSpaceMiB=8192
+memoryPolicy=75% physical RAM; 1 GiB floor; 8 GiB ceiling; telemetry-only
+nativePolicyVersion=2
+parentRlimitAsErrno=0
+parentRlimitAsSoft=RLIM_INFINITY
+parentRlimitAsHard=RLIM_INFINITY
+
+[PASS] JNI ABI v1 handshake — abi=1 policy=2
+[PASS] NativeSupervisor success round-trip — stage=OK exit=0 output=/data/data/org.nemack.universalfilelab.etroute.validator/files/etroute/sessions/smoke-193f16ca-74f2-4a35-9633-c72566c58643/workspace/output/etroute-smoke.txt
+[PASS] EXECVE failure preserves stage/errno — stage=EXECVE errno=2 exit=127
+[PASS] Timeout kills process group — stage=TIMEOUT_KILL signal=9 durationMs=511
+[PASS] PreparedLaunch rejects workspace escape before JNI — rejected=true
+[PASS] Advisory maximum memory policy — 8192 MiB telemetry only
+
+smokeSessionRoot=/data/data/org.nemack.universalfilelab.etroute.validator/files/etroute/sessions/smoke-193f16ca-74f2-4a35-9633-c72566c58643
+reportPath=/data/user/0/org.nemack.universalfilelab.etroute.validator/files/etroute/device-validation/latest-report.txt
+ETROUTE_DEVICE_VALIDATION=PASSED
+
+Recorded from the user's physical-device validator output on 2026-09-09.

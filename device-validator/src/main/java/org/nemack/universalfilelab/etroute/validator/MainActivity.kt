@@ -129,6 +129,12 @@ class MainActivity : Activity() {
         }
 
         val memory = memoryPolicy()
+        val supervisor = JniNativeSupervisor()
+        val workspaceManager = EtRouteWorkspaceManager(applicationContext)
+        val finalizer = RuntimeSessionFinalizer()
+        val nativePolicyVersion = supervisor.policyVersionForValidation()
+        val inheritedAs = supervisor.addressSpaceLimitForValidation()
+
         lines += "ETroute Physical Device Validation"
         lines += "device=${Build.MANUFACTURER} ${Build.MODEL}"
         lines += "android=${Build.VERSION.RELEASE} api=${Build.VERSION.SDK_INT}"
@@ -136,29 +142,35 @@ class MainActivity : Activity() {
         lines += "ramTotalMiB=${memory.totalBytes / MIB}"
         lines += "ramAvailableMiB=${memory.availableBytes / MIB}"
         lines += "advisoryAddressSpaceMiB=${if (memory.advisoryBytes == 0L) "uncapped" else memory.advisoryBytes / MIB}"
-        lines += "memoryPolicy=75% physical RAM; 1 GiB floor; 8 GiB ceiling; disabled below 2 GiB"
+        lines += "memoryPolicy=75% physical RAM; 1 GiB floor; 8 GiB ceiling; telemetry-only"
+        lines += "nativePolicyVersion=$nativePolicyVersion"
+        lines += "parentRlimitAsErrno=${inheritedAs.errno}"
+        lines += "parentRlimitAsSoft=${formatRlimit(inheritedAs.soft)}"
+        lines += "parentRlimitAsHard=${formatRlimit(inheritedAs.hard)}"
         lines += ""
-
-        val supervisor = JniNativeSupervisor()
-        val workspaceManager = EtRouteWorkspaceManager(applicationContext)
-        val finalizer = RuntimeSessionFinalizer()
 
         step("JNI ABI v1 handshake") {
             val abi = supervisor.abiVersionForValidation()
             check(abi == 1L) { "expected ABI 1, got $abi" }
-            "abi=$abi"
+            check(nativePolicyVersion == 2L) {
+                "expected native policy 2 (RLIMIT_AS opt-in), got $nativePolicyVersion; stale native library/APK suspected"
+            }
+            "abi=$abi policy=$nativePolicyVersion"
         }
 
         var smokeSessionRoot: File? = null
         step("NativeSupervisor success round-trip") {
             val run = EtRouteSessionRunner(applicationContext, supervisor).runSystemSmoke(timeoutMs = 15_000)
             smokeSessionRoot = run.paths.root
-            check(run.result.succeeded) { "result=${run.result}" }
+            val stderr = readDiagnostic(File(run.paths.diagnostics, "stderr.log"))
+            check(run.result.succeeded) {
+                "result=${run.result} stderr=${stderr.ifBlank { "<empty>" }}"
+            }
             val stdout = File(run.paths.diagnostics, "stdout.log").readText()
             val artifact = File(run.paths.output, "etroute-smoke.txt")
-            check("ETROUTE_ANDROID_SMOKE_OK" in stdout) { "stdout marker missing" }
+            check("ETROUTE_ANDROID_SMOKE_OK" in stdout) { "stdout marker missing; stderr=$stderr" }
             check(artifact.isFile && "ETROUTE_ANDROID_SMOKE_OK" in artifact.readText()) {
-                "output artifact missing or invalid"
+                "output artifact missing or invalid; stderr=$stderr"
             }
 
             val finalized = finalizer.finalize(
@@ -207,11 +219,19 @@ class MainActivity : Activity() {
                         origin = "device-validator:timeout"
                     )
                 )
-                check(result.timedOut) { "timedOut=false" }
-                check(result.stage == NativeSpawnStage.TIMEOUT_KILL) { "stage=${result.stage}" }
+                val stderr = readDiagnostic(File(paths.diagnostics, "stderr.log"))
+                check(result.timedOut) { "timedOut=false result=$result stderr=${stderr.ifBlank { "<empty>" }}" }
+                check(result.stage == NativeSpawnStage.TIMEOUT_KILL) { "stage=${result.stage} stderr=$stderr" }
                 "stage=${result.stage} signal=${result.signal} durationMs=${result.durationMs}"
             } finally {
-                finalizer.finalize(SessionFinalizationRequest(paths, preserveOutput = false))
+                finalizer.finalize(
+                    SessionFinalizationRequest(
+                        paths = paths,
+                        preserveOutput = false,
+                        retainDiagnostics = true,
+                        maxDiagnosticBytesPerFile = 4L * MIB
+                    )
+                )
             }
         }
 
@@ -244,7 +264,7 @@ class MainActivity : Activity() {
             } else {
                 check(memory.advisoryBytes == 0L) { "small-device policy should be uncapped" }
             }
-            if (memory.advisoryBytes == 0L) "uncapped" else "${memory.advisoryBytes / MIB} MiB"
+            if (memory.advisoryBytes == 0L) "uncapped telemetry" else "${memory.advisoryBytes / MIB} MiB telemetry only"
         }
 
         lines += ""
@@ -292,6 +312,21 @@ class MainActivity : Activity() {
         originTag = origin
     )
 
+    private fun readDiagnostic(file: File): String {
+        if (!file.isFile) return ""
+        return runCatching {
+            val bytes = file.inputStream().use { input ->
+                input.readNBytes(MAX_INLINE_DIAGNOSTIC_BYTES)
+            }
+            bytes.toString(Charsets.UTF_8).trim().replace('\n', ' ')
+        }.getOrElse { "<unable-to-read:${it::class.java.simpleName}>" }
+    }
+
+    private fun formatRlimit(value: Long): String = when (value) {
+        -1L -> "RLIM_INFINITY"
+        else -> "$value bytes"
+    }
+
     private data class MemoryPolicy(
         val totalBytes: Long,
         val availableBytes: Long,
@@ -326,5 +361,6 @@ class MainActivity : Activity() {
     companion object {
         private const val MIB = 1024L * 1024L
         private const val GIB = 1024L * MIB
+        private const val MAX_INLINE_DIAGNOSTIC_BYTES = 8 * 1024
     }
 }

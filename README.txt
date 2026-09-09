@@ -26,28 +26,29 @@ The native supervisor owns:
 - RLIMIT_CPU
 - RLIMIT_NOFILE
 - RLIMIT_FSIZE
-- adaptive RLIMIT_AS
+- explicit opt-in RLIMIT_AS
 - absolute execve with no post-fork PATH search
 
 ADVISORY MEMORY POLICY
 ----------------------
-When maxAddressSpaceBytes is zero, ETroute uses a high-but-bounded automatic
-address-space allowance:
+ETroute reports a high-level address-space advisory for diagnostics and
+physical-device validation:
 
   75% of visible physical RAM
   minimum 1 GiB
   maximum 8 GiB
-  no automatic RLIMIT_AS below 2 GiB physical RAM
+  disabled below 2 GiB physical RAM
 
-This is intentionally an address-space limit, not a request to consume that
-amount of resident memory. Android remains free to apply its own process and
-system memory policy. Callers may provide an explicit lower cap when a workload
-requires tighter control.
+This value is telemetry only. It is never automatically fed into RLIMIT_AS.
+A maxAddressSpaceBytes value of zero means that ETroute leaves the inherited
+virtual-address-space limit unchanged. A non-zero value is an explicit caller-
+supplied hard RLIMIT_AS and should be used with care on 64-bit Android.
 
-The default device-validation workload also uses:
+The default device-validation workload uses:
 - maxOpenFiles = 4096
 - maxFileBytes = 1 GiB
-- cpuSeconds = 0 (no ETroute CPU-time cap)
+- cpuSeconds = 0
+- maxAddressSpaceBytes = 0
 
 ANDROID TOOLCHAIN
 -----------------
@@ -100,14 +101,11 @@ RuntimeSessionFinalizer:
 
 BUILD/LINK VALIDATION
 ---------------------
-Build-only final code revalidation:
+Build-only validation:
 
   ETROUTE_BUILD_ONLY=1 bash tools/run_android_jni_validation.sh
 
-This builds the JNI library, Android instrumentation APK, and the physical-
-device validator APK, then verifies arm64-v8a + x86_64 ELF/JNI outputs.
-
-Create an easy-to-install validator APK:
+Create the physical-device validator APK:
 
   bash tools/build_device_validator.sh
 
@@ -117,29 +115,35 @@ Expected copy:
 
 PHYSICAL ANDROID FINAL GATE
 ---------------------------
-The preferred final test is now one tap on the physical Android device:
 
-1. Build ETroute-Device-Validator-debug.apk.
-2. Install it on the arm64 Android device.
-3. Open "ETroute Validator".
-4. Tap "RUN ETROUTE TEST".
-5. Tap "COPY REPORT" if any step fails and return that report for correction.
+PASSED on 2026-09-09 on a physical nubia NX729J running Android 15 / API 35
+with arm64-v8a as the primary ABI.
 
-The app verifies:
-- System.loadLibrary + JNI ABI v1
-- successful NativeSupervisor round trip
-- execve failure stage/errno preservation
-- timeout/process-group termination
-- workspace escape rejection before JNI
-- output preservation + session finalization
-- advisory maximum memory policy
+Observed policy/runtime facts:
+- nativePolicyVersion=2
+- parent RLIMIT_AS soft=RLIM_INFINITY
+- parent RLIMIT_AS hard=RLIM_INFINITY
+- JNI ABI v1 handshake passed
+- NativeSupervisor success round-trip passed with stage=OK exit=0
+- execve failure preserved stage=EXECVE errno=2 exit=127
+- timeout/process-group termination passed with stage=TIMEOUT_KILL signal=9
+- timeout duration was 511 ms for a 350 ms timeout + 150 ms grace configuration
+- PreparedLaunch workspace escape rejection passed before JNI
+- advisory address-space telemetry reported 8192 MiB and was not enforced
 
-For an ADB-connected device, the deeper instrumentation gate remains:
+Authoritative evidence:
 
-  bash tools/run_physical_device_final_test.sh
+  evidence/physical-device/nubia-NX729J-android15-api35-2026-09-09.txt
 
-Only the physical-device pass should promote the project to final Android
-runtime verified status.
+The NativeSupervisor contract is now physically validated on the production
+arm64 Android device. Further work should build above this frozen boundary
+rather than changing process-group/timeout or default RLIMIT_AS behavior without
+new failing evidence.
+
+NEXT SLICE
+----------
+Proceed with PreparedLaunch / RuntimePack integration above the validated
+NativeSupervisor boundary.
 
 CODESPACES NOTES
 ----------------
@@ -153,9 +157,7 @@ The repository includes local/manual helpers:
   tools/show_latest_jni_failure.sh
   tools/verify_android_jni_build.py
 
-GitHub Actions remain off by default. The Codespaces emulator path is optional;
-a host may expose /dev/kvm without granting the Codespaces user permission to
-use it. This does not affect NDK build/link evidence or the physical-device gate.
+GitHub Actions remain off by default.
 
 LEGACY FILES
 ------------
