@@ -2,6 +2,7 @@ package org.nemack.universalfilelab.etroute
 
 import android.content.Context
 import android.util.Log
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.UUID
 
@@ -236,8 +237,8 @@ class RuntimeSessionFinalizer {
             emptyList()
         }
 
-        val cleaned = request.paths.input.let { !it.exists() } &&
-            request.paths.tmp.let { !it.exists() } &&
+        val cleaned = !request.paths.input.exists() &&
+            !request.paths.tmp.exists() &&
             (request.preserveOutput || !request.paths.output.exists())
 
         return SessionFinalizationResult(
@@ -256,10 +257,7 @@ class RuntimeSessionFinalizer {
             if (!file.isFile || file.name !in request.diagnosticNames) {
                 file.deleteRecursively()
             } else if (file.length() > request.maxDiagnosticBytesPerFile) {
-                val bytes = file.inputStream().use { input ->
-                    input.readNBytes(request.maxDiagnosticBytesPerFile.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
-                }
-                file.writeBytes(bytes)
+                file.writeBytes(readPrefix(file, request.maxDiagnosticBytesPerFile))
             }
         }
 
@@ -267,5 +265,24 @@ class RuntimeSessionFinalizer {
             .filter { it.isFile }
             .map { it.name }
             .sorted()
+    }
+
+    private fun readPrefix(file: File, maxBytes: Long): ByteArray {
+        if (maxBytes <= 0) return ByteArray(0)
+        val bounded = maxBytes.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        val output = ByteArrayOutputStream(bounded.coerceAtMost(64 * 1024))
+        val buffer = ByteArray(16 * 1024)
+        var remaining = bounded
+
+        file.inputStream().use { input ->
+            while (remaining > 0) {
+                val read = input.read(buffer, 0, minOf(buffer.size, remaining))
+                if (read <= 0) break
+                output.write(buffer, 0, read)
+                remaining -= read
+            }
+        }
+
+        return output.toByteArray()
     }
 }
