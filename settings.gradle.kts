@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "ETroute"
 include(":android")
+include(":device-validator")
