@@ -27,7 +27,10 @@ data class NativeResourceLimits(
     val cpuSeconds: Long = 0,
     val maxOpenFiles: Long = 0,
     val maxFileBytes: Long = 0,
-    /** 0 delegates to ETroute's native advisory policy: 75% of RAM, clamped to 1-8 GiB. */
+    /**
+     * 0 = do not apply RLIMIT_AS. A non-zero value is an explicit hard
+     * virtual-address-space limit and should be used with care on 64-bit Android.
+     */
     val maxAddressSpaceBytes: Long = 0
 ) {
     init {
