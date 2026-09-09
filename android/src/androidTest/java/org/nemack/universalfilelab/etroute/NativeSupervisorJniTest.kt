@@ -78,7 +78,7 @@ class NativeSupervisorJniTest {
         )
 
         assertEquals(NativeSpawnStage.EXECVE, result.stage)
-        assertEquals(2, result.spawnErrno) // ENOENT on Linux/Android
+        assertEquals(2, result.spawnErrno)
         assertEquals(127, result.exitCode)
         assertFalse(result.succeeded)
     }
@@ -92,7 +92,7 @@ class NativeSupervisorJniTest {
         )
 
         assertEquals(NativeSpawnStage.CHDIR, result.stage)
-        assertEquals(2, result.spawnErrno) // ENOENT
+        assertEquals(2, result.spawnErrno)
         assertFalse(result.succeeded)
     }
 
@@ -100,8 +100,8 @@ class NativeSupervisorJniTest {
     fun timeoutKillsProcessGroup() {
         val leaderPid = File(context.cacheDir, "leader-${UUID.randomUUID()}.pid")
         val childPid = File(context.cacheDir, "child-${UUID.randomUUID()}.pid")
-        val command = "echo $$ > ${leaderPid.absolutePath}; " +
-            "sleep 30 & echo $! > ${childPid.absolutePath}; wait"
+        val command = "echo \$\$ > ${leaderPid.absolutePath}; " +
+            "sleep 30 & echo \$! > ${childPid.absolutePath}; wait"
 
         val (_, result) = launch(
             arguments = listOf("-c", command),
@@ -137,8 +137,8 @@ class NativeSupervisorJniTest {
 
         val stdoutMode = Os.stat(prepared.stdoutPath).st_mode and 0x1FF
         val stderrMode = Os.stat(prepared.stderrPath).st_mode and 0x1FF
-        assertEquals(0x180, stdoutMode) // 0600
-        assertEquals(0x180, stderrMode) // 0600
+        assertEquals(0x180, stdoutMode)
+        assertEquals(0x180, stderrMode)
     }
 
     @Test
