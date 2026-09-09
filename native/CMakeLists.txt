@@ -52,7 +52,7 @@ if(ANDROID)
     )
 endif()
 
-option(ETROUTE_BUILD_NATIVE_TESTS "Build native supervisor smoke test" OFF)
+option(ETROUTE_BUILD_NATIVE_TESTS "Build native supervisor and JNI ABI contract tests" OFF)
 
 if(ETROUTE_BUILD_NATIVE_TESTS)
     add_executable(etroute_native_supervisor_smoke
@@ -61,5 +61,20 @@ if(ETROUTE_BUILD_NATIVE_TESTS)
     target_link_libraries(etroute_native_supervisor_smoke
         PRIVATE
             etroute_native_supervisor
+    )
+
+    add_executable(etroute_jni_abi_contract_test
+        tests/jni_abi_contract_test.cpp
+    )
+    target_include_directories(etroute_jni_abi_contract_test
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    target_compile_features(etroute_jni_abi_contract_test PRIVATE cxx_std_20)
+    target_compile_options(etroute_jni_abi_contract_test PRIVATE
+        -Wall
+        -Wextra
+        -Wpedantic
+        -Werror
     )
 endif()
