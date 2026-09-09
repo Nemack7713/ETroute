@@ -26,12 +26,15 @@ enum class NativeSpawnStage(val wire: Int) {
 data class NativeResourceLimits(
     val cpuSeconds: Long = 0,
     val maxOpenFiles: Long = 0,
-    val maxFileBytes: Long = 0
+    val maxFileBytes: Long = 0,
+    /** 0 delegates to ETroute's native advisory policy: 75% of RAM, clamped to 1-8 GiB. */
+    val maxAddressSpaceBytes: Long = 0
 ) {
     init {
         require(cpuSeconds >= 0) { "cpuSeconds cannot be negative" }
         require(maxOpenFiles >= 0) { "maxOpenFiles cannot be negative" }
         require(maxFileBytes >= 0) { "maxFileBytes cannot be negative" }
+        require(maxAddressSpaceBytes >= 0) { "maxAddressSpaceBytes cannot be negative" }
     }
 }
 
@@ -101,7 +104,8 @@ class JniNativeSupervisor {
         terminateGraceMs: Long,
         cpuSeconds: Long,
         maxOpenFiles: Long,
-        maxFileBytes: Long
+        maxFileBytes: Long,
+        maxAddressSpaceBytes: Long
     ): LongArray
 
     fun abiVersionForValidation(): Long = nativeAbiVersion()
@@ -121,7 +125,8 @@ class JniNativeSupervisor {
             terminateGraceMs = launch.terminateGraceMs,
             cpuSeconds = launch.limits.cpuSeconds,
             maxOpenFiles = launch.limits.maxOpenFiles,
-            maxFileBytes = launch.limits.maxFileBytes
+            maxFileBytes = launch.limits.maxFileBytes,
+            maxAddressSpaceBytes = launch.limits.maxAddressSpaceBytes
         )
 
         require(raw.size == RESULT_FIELD_COUNT) {
