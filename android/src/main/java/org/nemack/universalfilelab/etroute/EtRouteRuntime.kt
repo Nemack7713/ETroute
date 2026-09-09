@@ -54,10 +54,7 @@ class EtRouteWorkspaceManager(context: Context) {
     }
 }
 
-/**
- * Canonicalizes and validates every filesystem-sensitive launch field before JNI.
- * The post-fork child therefore never performs policy decisions or path discovery.
- */
+/** Canonicalizes and validates every filesystem-sensitive launch field before JNI. */
 class PreparedLaunchValidator(
     context: Context,
     private val session: RuntimeSessionPaths
@@ -82,9 +79,7 @@ class PreparedLaunchValidator(
 
         val cwd = File(launch.workingDirectory).canonicalFile
         require(cwd.isDirectory) { "Working directory does not exist: ${cwd.path}" }
-        require(isWithin(cwd, session.root)) {
-            "Working directory escaped ETroute session: ${cwd.path}"
-        }
+        require(isWithin(cwd, session.root)) { "Working directory escaped ETroute session: ${cwd.path}" }
 
         val stdout = File(launch.stdoutPath).canonicalFile
         val stderr = File(launch.stderrPath).canonicalFile
@@ -175,8 +170,9 @@ class EtRouteSessionRunner(
             terminateGraceMs = 500,
             limits = NativeResourceLimits(
                 cpuSeconds = 0,
-                maxOpenFiles = 1024,
-                maxFileBytes = 512L * 1024L * 1024L
+                maxOpenFiles = 4096,
+                maxFileBytes = 1L * 1024L * 1024L * 1024L,
+                maxAddressSpaceBytes = 0
             ),
             sessionId = sessionId,
             requestId = "smoke-${UUID.randomUUID()}",
@@ -222,13 +218,10 @@ class RuntimeSessionFinalizer {
         require(request.maxDiagnosticBytesPerFile >= 0) { "maxDiagnosticBytesPerFile cannot be negative" }
 
         val exportedTo = request.exportSink?.export(request.paths.output)
-
         request.paths.input.deleteRecursively()
         request.paths.tmp.deleteRecursively()
 
-        if (!request.preserveOutput) {
-            request.paths.output.deleteRecursively()
-        }
+        if (!request.preserveOutput) request.paths.output.deleteRecursively()
 
         val retained = if (request.retainDiagnostics) {
             retainBoundedDiagnostics(request)
