@@ -4,10 +4,41 @@
 #include <jni.h>
 
 #include <array>
+#include <cerrno>
+#include <cstdint>
 #include <string>
 #include <vector>
 
 namespace {
+
+static_assert(static_cast<std::int64_t>(etroute::SpawnStage::Ok) ==
+              static_cast<std::int64_t>(etroute::jni::SpawnStageWire::Ok));
+static_assert(static_cast<std::int64_t>(etroute::SpawnStage::InvalidArgument) ==
+              static_cast<std::int64_t>(etroute::jni::SpawnStageWire::InvalidArgument));
+static_assert(static_cast<std::int64_t>(etroute::SpawnStage::OpenStdout) ==
+              static_cast<std::int64_t>(etroute::jni::SpawnStageWire::OpenStdout));
+static_assert(static_cast<std::int64_t>(etroute::SpawnStage::OpenStderr) ==
+              static_cast<std::int64_t>(etroute::jni::SpawnStageWire::OpenStderr));
+static_assert(static_cast<std::int64_t>(etroute::SpawnStage::ErrorPipe) ==
+              static_cast<std::int64_t>(etroute::jni::SpawnStageWire::ErrorPipe));
+static_assert(static_cast<std::int64_t>(etroute::SpawnStage::Fork) ==
+              static_cast<std::int64_t>(etroute::jni::SpawnStageWire::Fork));
+static_assert(static_cast<std::int64_t>(etroute::SpawnStage::Setpgid) ==
+              static_cast<std::int64_t>(etroute::jni::SpawnStageWire::Setpgid));
+static_assert(static_cast<std::int64_t>(etroute::SpawnStage::ResourceLimit) ==
+              static_cast<std::int64_t>(etroute::jni::SpawnStageWire::ResourceLimit));
+static_assert(static_cast<std::int64_t>(etroute::SpawnStage::Chdir) ==
+              static_cast<std::int64_t>(etroute::jni::SpawnStageWire::Chdir));
+static_assert(static_cast<std::int64_t>(etroute::SpawnStage::Dup2Stdout) ==
+              static_cast<std::int64_t>(etroute::jni::SpawnStageWire::Dup2Stdout));
+static_assert(static_cast<std::int64_t>(etroute::SpawnStage::Dup2Stderr) ==
+              static_cast<std::int64_t>(etroute::jni::SpawnStageWire::Dup2Stderr));
+static_assert(static_cast<std::int64_t>(etroute::SpawnStage::Execve) ==
+              static_cast<std::int64_t>(etroute::jni::SpawnStageWire::Execve));
+static_assert(static_cast<std::int64_t>(etroute::SpawnStage::Waitpid) ==
+              static_cast<std::int64_t>(etroute::jni::SpawnStageWire::Waitpid));
+static_assert(static_cast<std::int64_t>(etroute::SpawnStage::TimeoutKill) ==
+              static_cast<std::int64_t>(etroute::jni::SpawnStageWire::TimeoutKill));
 
 std::vector<std::string> to_strings(JNIEnv* env, jobjectArray array) {
     std::vector<std::string> result;
@@ -58,6 +89,13 @@ jlongArray pack_result(JNIEnv* env, const etroute::NativeRunResult& result) {
     return array;
 }
 
+etroute::NativeRunResult invalid_argument_result() noexcept {
+    etroute::NativeRunResult result{};
+    result.stage = etroute::SpawnStage::InvalidArgument;
+    result.spawn_errno = EINVAL;
+    return result;
+}
+
 }  // namespace
 
 extern "C"
@@ -86,6 +124,20 @@ Java_org_nemack_universalfilelab_etroute_JniNativeSupervisor_nativeRun(
     jlong max_open_files,
     jlong max_file_bytes
 ) {
+    if (executable_value == nullptr ||
+        argv_value == nullptr ||
+        envp_value == nullptr ||
+        cwd_value == nullptr ||
+        stdout_value == nullptr ||
+        stderr_value == nullptr ||
+        timeout_ms <= 0 ||
+        terminate_grace_ms < 0 ||
+        cpu_seconds < 0 ||
+        max_open_files < 0 ||
+        max_file_bytes < 0) {
+        return pack_result(env, invalid_argument_result());
+    }
+
     etroute::PreparedProcess process{
         .executable = to_string(env, executable_value),
         .argv = to_strings(env, argv_value),
