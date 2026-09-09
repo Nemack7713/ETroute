@@ -104,6 +104,8 @@ class JniNativeSupervisor {
         maxFileBytes: Long
     ): LongArray
 
+    fun abiVersionForValidation(): Long = nativeAbiVersion()
+
     fun run(launch: PreparedLaunch): NativeRunResult {
         val raw = nativeRun(
             executable = launch.executable,
