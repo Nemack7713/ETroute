@@ -29,16 +29,25 @@ The native supervisor owns:
 - adaptive RLIMIT_AS
 - absolute execve with no post-fork PATH search
 
-Adaptive memory policy
+ADVISORY MEMORY POLICY
 ----------------------
-When no explicit native address-space cap is supplied, ETroute calculates an
-advisory RLIMIT_AS from physical RAM:
+When maxAddressSpaceBytes is zero, ETroute uses a high-but-bounded automatic
+address-space allowance:
 
-  75% of physical RAM, capped at 8 GiB
+  75% of visible physical RAM
+  minimum 1 GiB
+  maximum 8 GiB
+  no automatic RLIMIT_AS below 2 GiB physical RAM
 
-The cap is intentionally generous for high-memory Android devices while still
-leaving operating-system headroom. On devices below 2 GiB ETroute does not
-apply the automatic address-space cap.
+This is intentionally an address-space limit, not a request to consume that
+amount of resident memory. Android remains free to apply its own process and
+system memory policy. Callers may provide an explicit lower cap when a workload
+requires tighter control.
+
+The default device-validation workload also uses:
+- maxOpenFiles = 4096
+- maxFileBytes = 1 GiB
+- cpuSeconds = 0 (no ETroute CPU-time cap)
 
 ANDROID TOOLCHAIN
 -----------------
@@ -65,7 +74,7 @@ JNI result ABI v1 is frozen at seven fields:
   5 spawn errno
   6 spawn stage
 
-Changing this layout requires a coordinated ABI version bump.
+Changing this result layout requires a coordinated ABI version bump.
 
 SESSION MODEL
 -------------
@@ -91,49 +100,62 @@ RuntimeSessionFinalizer:
 
 BUILD/LINK VALIDATION
 ---------------------
-Run:
+Build-only final code revalidation:
 
-  bash tools/run_android_jni_validation.sh
+  ETROUTE_BUILD_ONLY=1 bash tools/run_android_jni_validation.sh
 
-This builds arm64-v8a + x86_64, validates the ELF architecture, and verifies
-both required JNI exports. The current repository status is recorded in
-ETROUTE_STATUS.json.
+This builds the JNI library, Android instrumentation APK, and the physical-
+device validator APK, then verifies arm64-v8a + x86_64 ELF/JNI outputs.
+
+Create an easy-to-install validator APK:
+
+  bash tools/build_device_validator.sh
+
+Expected copy:
+
+  dist/ETroute-Device-Validator-debug.apk
 
 PHYSICAL ANDROID FINAL GATE
 ---------------------------
-The authoritative final test is the connected arm64 Android device:
+The preferred final test is now one tap on the physical Android device:
+
+1. Build ETroute-Device-Validator-debug.apk.
+2. Install it on the arm64 Android device.
+3. Open "ETroute Validator".
+4. Tap "RUN ETROUTE TEST".
+5. Tap "COPY REPORT" if any step fails and return that report for correction.
+
+The app verifies:
+- System.loadLibrary + JNI ABI v1
+- successful NativeSupervisor round trip
+- execve failure stage/errno preservation
+- timeout/process-group termination
+- workspace escape rejection before JNI
+- output preservation + session finalization
+- advisory maximum memory policy
+
+For an ADB-connected device, the deeper instrumentation gate remains:
 
   bash tools/run_physical_device_final_test.sh
 
-The gate runs the Android instrumentation suite and verifies:
-- System.loadLibrary
-- JNI ABI v1 handshake
-- successful JNI/native round trip
-- execve ENOENT propagation
-- chdir errno propagation
-- timeout and process-tree cleanup
-- 0600 stdout/stderr
-- child resource limits
-- ETroute system smoke output
-- workspace escape rejection before JNI
-- intentional output preservation
-- bounded diagnostic finalization
-
-Only a passing physical-device run should promote JNI_DEVICE_VERIFIED / final
-Android status.
+Only the physical-device pass should promote the project to final Android
+runtime verified status.
 
 CODESPACES NOTES
 ----------------
-The repository includes optional Codespaces helpers:
+The repository includes local/manual helpers:
 
   tools/bootstrap_android_sdk.sh
+  tools/run_android_jni_validation.sh
+  tools/build_device_validator.sh
   tools/run_android_jni_emulator_validation.sh
+  tools/run_physical_device_final_test.sh
   tools/show_latest_jni_failure.sh
   tools/verify_android_jni_build.py
 
-The Codespaces emulator path is optional. A host may expose /dev/kvm without
-granting the Codespaces user permission to use it. This does not affect the
-NDK build/link evidence or the physical-device final gate.
+GitHub Actions remain off by default. The Codespaces emulator path is optional;
+a host may expose /dev/kvm without granting the Codespaces user permission to
+use it. This does not affect NDK build/link evidence or the physical-device gate.
 
 LEGACY FILES
 ------------
