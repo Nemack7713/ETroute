@@ -6,6 +6,9 @@ cd "$ROOT_DIR"
 
 AVD_NAME="${ETROUTE_AVD_NAME:-ETroute_API_36_x86_64}"
 EMULATOR_PORT="${ETROUTE_EMULATOR_PORT:-5554}"
+EMULATOR_DATA_MB="${ETROUTE_EMULATOR_DATA_MB:-3072}"
+EMULATOR_MEMORY_MB="${ETROUTE_EMULATOR_MEMORY_MB:-2048}"
+MIN_HOST_RESERVE_MB="${ETROUTE_EMULATOR_HOST_RESERVE_MB:-2048}"
 SERIAL="emulator-${EMULATOR_PORT}"
 EVIDENCE_DIR="$ROOT_DIR/evidence/android_jni/latest"
 EMULATOR_LOG="$EVIDENCE_DIR/emulator-${SERIAL}.log"
@@ -16,6 +19,13 @@ if [[ ! -e /dev/kvm ]]; then
   echo "[ETroute] ERROR: /dev/kvm is unavailable; accelerated x86_64 emulator validation cannot run here." >&2
   exit 3
 fi
+
+for numeric in "$EMULATOR_DATA_MB" "$EMULATOR_MEMORY_MB" "$MIN_HOST_RESERVE_MB"; do
+  if ! [[ "$numeric" =~ ^[0-9]+$ ]] || [[ "$numeric" -le 0 ]]; then
+    echo "[ETroute] ERROR: emulator size settings must be positive integer MB values." >&2
+    exit 2
+  fi
+done
 
 detect_sdk_root() {
   if [[ -n "${ANDROID_SDK_ROOT:-}" && -d "$ANDROID_SDK_ROOT" ]]; then
@@ -108,7 +118,29 @@ else
     echo "[ETroute] Reusing existing AVD: $AVD_NAME"
   fi
 
+  AVAILABLE_MB="$(df -Pm "$HOME" | awk 'NR==2 {print $4}')"
+  REQUIRED_MB=$((EMULATOR_DATA_MB + MIN_HOST_RESERVE_MB))
+  echo "[ETroute] Host disk free: ${AVAILABLE_MB} MB"
+  echo "[ETroute] Emulator userdata: ${EMULATOR_DATA_MB} MB; host reserve: ${MIN_HOST_RESERVE_MB} MB"
+  if [[ -z "$AVAILABLE_MB" || "$AVAILABLE_MB" -lt "$REQUIRED_MB" ]]; then
+    echo "[ETroute] ERROR: insufficient host disk space for the reduced validation AVD." >&2
+    echo "[ETroute] Need at least ${REQUIRED_MB} MB free; found ${AVAILABLE_MB:-unknown} MB." >&2
+    exit 9
+  fi
+
+  # A previous failed launch may have left a partially-created userdata image.
+  # This AVD exists only for ETroute validation, so reset its writable images.
+  AVD_DIR="$HOME/.android/avd/${AVD_NAME}.avd"
+  if [[ -d "$AVD_DIR" ]]; then
+    rm -f \
+      "$AVD_DIR/userdata-qemu.img" \
+      "$AVD_DIR/userdata-qemu.img.qcow2" \
+      "$AVD_DIR/cache.img" \
+      "$AVD_DIR/cache.img.qcow2"
+  fi
+
   echo "[ETroute] Starting headless accelerated emulator on port $EMULATOR_PORT."
+  echo "[ETroute] Using reduced ${EMULATOR_DATA_MB} MB userdata partition for Codespaces validation."
   : > "$EMULATOR_LOG"
   nohup "$EMULATOR" \
     -avd "$AVD_NAME" \
@@ -116,6 +148,11 @@ else
     -no-window \
     -no-audio \
     -no-boot-anim \
+    -no-snapshot-load \
+    -no-snapshot-save \
+    -wipe-data \
+    -partition-size "$EMULATOR_DATA_MB" \
+    -memory "$EMULATOR_MEMORY_MB" \
     -gpu swiftshader_indirect \
     -accel on \
     >"$EMULATOR_LOG" 2>&1 &
