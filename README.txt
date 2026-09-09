@@ -1,102 +1,142 @@
-ETroute Adapted Starter
-=======================
+ETroute Native Runtime
+======================
 
-Files:
-- etroute.py: hardened stdlib-only starter runtime
-- tools/verify_proot_s_mode.py: PRoot -S drift and binary identity verifier
-- docs/ETROUTE_CONTEXT.md: consolidated design and verification policy
-- tests/test_etroute.py: initial unit tests
+ETroute is a non-root Android execution/runtime layer built around a C++20
+NativeSupervisor and a Kotlin orchestration layer. The production execution
+path does not use PRoot.
 
-Run tests:
-    cd ETroute_adapted
-    python -m unittest discover -s tests -v
+CURRENT EXECUTION PATH
+----------------------
 
-Show CLI:
-    python etroute.py --help
+  Android / Kotlin
+      -> PreparedLaunchValidator
+      -> EtRouteSessionRunner
+      -> JniNativeSupervisor
+      -> libetroute_native_supervisor.so
+      -> fork
+      -> child-side syscall-only setup
+      -> execve(absolute executable)
 
-Install a rootfs:
-    python etroute.py install debian \
-      --tarball /path/debian-rootfs.tar.xz \
-      --sha256 <64-hex-digest> \
-      --version stable \
-      --arch aarch64
+The native supervisor owns:
+- CLOEXEC child error-pipe reporting
+- real spawn errno + stage propagation
+- process-group ownership
+- SIGTERM -> grace -> SIGKILL timeout escalation
+- stdout/stderr mode 0600
+- RLIMIT_CPU
+- RLIMIT_NOFILE
+- RLIMIT_FSIZE
+- adaptive RLIMIT_AS
+- absolute execve with no post-fork PATH search
 
-Open an emulated-root login:
-    python etroute.py run debian --mode login-root
+Adaptive memory policy
+----------------------
+When no explicit native address-space cap is supplied, ETroute calculates an
+advisory RLIMIT_AS from physical RAM:
 
-Run a package command under the explicit package-safe policy:
-    python etroute.py run debian --mode package -- apt-get update
+  75% of physical RAM, capped at 8 GiB
 
-Verify the selected PRoot binary against the explicit -S policy:
-    python tools/verify_proot_s_mode.py \
-      --rootfs "$PREFIX/var/lib/etroute/containers/debian/rootfs" \
-      --expected-sha256 <known-good-proot-sha256> \
-      --json-out proot-s-bind-audit.json
+The cap is intentionally generous for high-memory Android devices while still
+leaving operating-system headroom. On devices below 2 GiB ETroute does not
+apply the automatic address-space cap.
 
-FIRST-ACTIVATION DIAGNOSTIC
+ANDROID TOOLCHAIN
+-----------------
+- compileSdk 36
+- targetSdk 36
+- minSdk 24
+- Java/JVM 17
+- Android Gradle Plugin 8.13.2
+- Gradle 8.13
+- NDK 27.0.12077973
+- CMake 3.22.1
+- C++20
+- build ABIs: arm64-v8a, x86_64
+
+JNI ABI
+-------
+JNI result ABI v1 is frozen at seven fields:
+
+  0 ABI version
+  1 exit code
+  2 signal
+  3 timed out
+  4 duration ms
+  5 spawn errno
+  6 spawn stage
+
+Changing this layout requires a coordinated ABI version bump.
+
+SESSION MODEL
+-------------
+ETroute owns an app-private per-session layout:
+
+  etroute/sessions/<session>/
+      workspace/input/
+      workspace/tmp/
+      workspace/output/
+      diagnostics/
+
+PreparedLaunchValidator canonicalizes filesystem paths before JNI, restricts
+executables to approved system/native/runtime-pack roots, prevents working-
+directory escape, and requires stdout/stderr to remain under diagnostics.
+
+RuntimeSessionFinalizer:
+- removes input/tmp ephemeral state
+- preserves workspace/output by default
+- optionally exports intentional output through SessionExportSink
+- retains only explicitly approved diagnostic files
+- bounds retained diagnostic size
+- never exports the entire mutable session tree automatically
+
+BUILD/LINK VALIDATION
+---------------------
+Run:
+
+  bash tools/run_android_jni_validation.sh
+
+This builds arm64-v8a + x86_64, validates the ELF architecture, and verifies
+both required JNI exports. The current repository status is recorded in
+ETROUTE_STATUS.json.
+
+PHYSICAL ANDROID FINAL GATE
 ---------------------------
-Run the bundled offline guest diagnostic after the guest has Python 3:
+The authoritative final test is the connected arm64 Android device:
 
-  python etroute.py diagnose debian --caller manual --kernel-release 5.15.0-et --strict
+  bash tools/run_physical_device_final_test.sh
 
-For ETumax capture:
+The gate runs the Android instrumentation suite and verifies:
+- System.loadLibrary
+- JNI ABI v1 handshake
+- successful JNI/native round trip
+- execve ENOENT propagation
+- chdir errno propagation
+- timeout and process-tree cleanup
+- 0600 stdout/stderr
+- child resource limits
+- ETroute system smoke output
+- workspace escape rejection before JNI
+- intentional output preservation
+- bounded diagnostic finalization
 
-  python etroute.py diagnose debian --caller etumax --kernel-release 5.15.0-et --strict
+Only a passing physical-device run should promote JNI_DEVICE_VERIFIED / final
+Android status.
 
-The launcher sets HOME=/root so the activation marker remains inside the
-selected rootfs at /root/.etroute_activation_marker. It does not use the
-Termux host HOME. The diagnostic reports live /dev, /proc, /sys, /tmp and
-optional /run/shm visibility. ETROUTE_CALLER is only a launcher declaration;
-ETumax must confirm that stdout was actually captured and parsed.
+CODESPACES NOTES
+----------------
+The repository includes optional Codespaces helpers:
 
-Strict diagnostic exit codes:
-  10 required guest bind visibility failed
-  11 expected kernel release did not match
-  12 activation marker could not be persisted
+  tools/bootstrap_android_sdk.sh
+  tools/run_android_jni_emulator_validation.sh
+  tools/show_latest_jni_failure.sh
+  tools/verify_android_jni_build.py
 
-ETUMAX BRIDGE (v6)
-------------------
-ETumax should invoke the stable subprocess bridge rather than importing ETroute
-internals:
+The Codespaces emulator path is optional. A host may expose /dev/kvm without
+granting the Codespaces user permission to use it. This does not affect the
+NDK build/link evidence or the physical-device final gate.
 
-  python tools/etumax_bridge.py debian \
-    --kernel-release 5.15.0-et \
-    --json-out evidence/etumax-etroute-handshake.json
-
-The bridge emits exactly one JSON envelope. `ok: true` means all of the
-following were verified: ETroute returned zero, stdout was exactly one JSON
-object, schema 1 was recognized, required binds were visible, any requested
-kernel release matched, the guest declared ETumax as caller, and environment
-and session correlation values matched. Exit 20 means launch/timeout failure;
-exit 21 means contract or diagnostic failure.
-
-REPRODUCIBLE RELEASE AND STATUS (v7)
-------------------------------------
-`ETROUTE_STATUS.json` is the authoritative evidence classification. Local
-compile/tests may be VERIFIED_LOCAL; Android and real-device behavior remains
-EXTERNAL_UNVERIFIABLE until raw target-device evidence is captured.
-
-Build one clean release from the canonical source tree:
-
-  python tools/build_release.py \
-    --output release/ETroute_adapted_starter_v7.zip \
-    --release-manifest release/ETROUTE_RELEASE.json
-
-The builder compiles required modules, runs the unit suite, excludes bytecode
-and transient release output, creates a deterministic ZIP, and writes the final
-archive SHA-256 to the sidecar release manifest. The archive hash is not stored
-inside the archive because that would be self-referential.
-
-Android first-device validation
--------------------------------
-Run two independent ETumax bridge handshakes and retain raw evidence:
-
-    python tools/android_device_validation.py debian \
-      --kernel-release 5.15.0-et \
-      --evidence-dir evidence/android
-
-A PASS requires both bridge runs, required bind visibility, matching kernel
-release, persistent activation state on the second run, and distinct validated
-ETumax session identifiers. The command writes a report and SHA256SUMS.txt.
-A local implementation or unit-test result does not promote Android status;
-only evidence produced on the target device can do that.
+LEGACY FILES
+------------
+Older Python/PRoot-era files remain in the repository only as migration and
+historical compatibility material. They are not part of the production native
+execution path and must not be reintroduced into NativeSupervisor execution.
