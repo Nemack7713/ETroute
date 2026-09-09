@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-EXPECTED_GRADLE_VERSION="8.7"
+EXPECTED_GRADLE_VERSION="8.13"
 EXPECTED_JAVA_MAJOR="17"
 EVIDENCE_DIR="$ROOT_DIR/evidence/android_jni/latest"
 BUILD_LOG="$EVIDENCE_DIR/gradle-build.log"
@@ -15,20 +15,14 @@ mkdir -p "$EVIDENCE_DIR"
 java_major_for_home() {
   local home="$1"
   [[ -x "$home/bin/java" ]] || return 1
-  "$home/bin/java" -version 2>&1 \
-    | head -n 1 \
-    | sed -E 's/.*version "([0-9]+).*/\1/'
+  "$home/bin/java" -version 2>&1 | head -n 1 | sed -E 's/.*version "([0-9]+).*/\1/'
 }
 
 select_jdk17() {
   local candidates=()
-  local candidate major
+  local candidate major seen="|"
 
-  if [[ -n "${JAVA_HOME:-}" ]]; then
-    candidates+=("$JAVA_HOME")
-  fi
-
-  # Common GitHub Codespaces / Ubuntu / SDKMAN locations.
+  [[ -n "${JAVA_HOME:-}" ]] && candidates+=("$JAVA_HOME")
   for candidate in \
     /usr/lib/jvm/java-17-openjdk-* \
     /usr/lib/jvm/*17* \
@@ -43,12 +37,9 @@ select_jdk17() {
     done < <(update-java-alternatives -l 2>/dev/null | awk '$1 ~ /17/ {print $3}')
   fi
 
-  # Deduplicate while preserving order.
-  local seen="|"
   for candidate in "${candidates[@]}"; do
     [[ "$seen" == *"|$candidate|"* ]] && continue
     seen+="$candidate|"
-
     major="$(java_major_for_home "$candidate" 2>/dev/null || true)"
     if [[ "$major" == "$EXPECTED_JAVA_MAJOR" ]]; then
       export JAVA_HOME="$candidate"
@@ -58,15 +49,61 @@ select_jdk17() {
     fi
   done
 
-  echo "[ETroute] ERROR: JDK 17 is required for this Gradle 8.7 / AGP 8.5.2 validation build." >&2
-  echo "[ETroute] Current Java:" >&2
-  java -version 2>&1 | head -n 3 >&2 || true
-  echo >&2
-  echo "[ETroute] No installed JDK 17 was found in common Codespaces/Ubuntu locations." >&2
-  echo "[ETroute] On Ubuntu/Codespaces, install it with:" >&2
+  echo "[ETroute] ERROR: JDK 17 is required." >&2
   echo "  sudo apt-get update && sudo apt-get install -y openjdk-17-jdk" >&2
-  echo "[ETroute] Then rerun this script; it will select JDK 17 automatically." >&2
   exit 2
+}
+
+is_android_sdk() {
+  local root="$1"
+  [[ -d "$root" ]] || return 1
+  [[ -d "$root/platforms" || -x "$root/cmdline-tools/latest/bin/sdkmanager" || -x "$root/platform-tools/adb" ]]
+}
+
+select_android_sdk() {
+  local candidates=()
+  local candidate seen="|"
+
+  [[ -n "${ANDROID_SDK_ROOT:-}" ]] && candidates+=("$ANDROID_SDK_ROOT")
+  [[ -n "${ANDROID_HOME:-}" ]] && candidates+=("$ANDROID_HOME")
+  candidates+=(
+    "$HOME/.android-sdk"
+    "$HOME/Android/Sdk"
+    "/usr/local/lib/android/sdk"
+    "/usr/local/android-sdk"
+    "/opt/android-sdk"
+    "/opt/android-sdk-linux"
+  )
+
+  if [[ -f "$ROOT_DIR/local.properties" ]]; then
+    candidate="$(sed -n 's/^sdk\.dir=//p' "$ROOT_DIR/local.properties" | head -n 1)"
+    [[ -n "$candidate" ]] && candidates=("$candidate" "${candidates[@]}")
+  fi
+
+  for candidate in "${candidates[@]}"; do
+    [[ "$seen" == *"|$candidate|"* ]] && continue
+    seen+="$candidate|"
+    if is_android_sdk "$candidate"; then
+      export ANDROID_HOME="$candidate"
+      export ANDROID_SDK_ROOT="$candidate"
+      export PATH="$candidate/cmdline-tools/latest/bin:$candidate/platform-tools:$PATH"
+      printf 'sdk.dir=%s\n' "$candidate" > "$ROOT_DIR/local.properties"
+      echo "[ETroute] Selected Android SDK: $candidate"
+      return 0
+    fi
+  done
+
+  cat >&2 <<'EOF'
+[ETroute] ERROR: Android SDK location not found.
+[ETroute] ETroute now includes a one-time Codespaces bootstrap helper.
+[ETroute] Review Google's Android SDK license terms first, then if you accept them run:
+
+  ETROUTE_ACCEPT_ANDROID_SDK_LICENSES=1 bash tools/bootstrap_android_sdk.sh
+
+[ETroute] After setup, rerun:
+  bash tools/run_android_jni_validation.sh
+EOF
+  exit 4
 }
 
 print_build_failure_summary() {
@@ -74,7 +111,7 @@ print_build_failure_summary() {
   echo
   echo "[ETroute] ===== focused Gradle failure summary =====" >&2
   grep -nEi \
-    'FAILURE: Build failed|What went wrong|Execution failed|error:|CMake Error|SDK location|Android SDK|NDK|Could not resolve|requires Gradle|Minimum supported Gradle|Maximum supported Gradle|Android Gradle plugin requires Java|Unsupported class file|Could not determine|Plugin .* was not found|Unsupported Java|Java version|25\.0\.4\.1' \
+    'FAILURE: Build failed|What went wrong|Execution failed|error:|CMake Error|SDK location|Android SDK|NDK|Could not resolve|requires Gradle|Minimum supported Gradle|Maximum supported Gradle|Android Gradle plugin requires Java|Unsupported class file|Could not determine|Plugin .* was not found|Unsupported Java|Java version' \
     "$log_file" | tail -n 100 >&2 || true
   echo "[ETroute] ===== tail of full Gradle log =====" >&2
   tail -n 140 "$log_file" >&2 || true
@@ -87,12 +124,8 @@ bootstrap_gradle_wrapper() {
     exit 2
   fi
 
-  local bootstrap_dir
+  local bootstrap_dir bootstrap_status
   bootstrap_dir="$(mktemp -d)"
-
-  # Generate the wrapper in an isolated empty build. Running `gradle wrapper`
-  # directly in ETroute would configure AGP using the system Gradle before the
-  # requested 8.7 wrapper can be created.
   cat > "$bootstrap_dir/settings.gradle" <<'EOF'
 rootProject.name = 'etroute-wrapper-bootstrap'
 EOF
@@ -111,11 +144,10 @@ EOF
       --gradle-version "$EXPECTED_GRADLE_VERSION" \
       --distribution-type bin
   ) 2>&1 | tee "$WRAPPER_LOG"
-  local bootstrap_status=${PIPESTATUS[0]}
+  bootstrap_status=${PIPESTATUS[0]}
   set -e
 
   if [[ $bootstrap_status -ne 0 ]]; then
-    echo "[ETroute] ERROR: isolated Gradle wrapper bootstrap failed." >&2
     print_build_failure_summary "$WRAPPER_LOG"
     rm -rf "$bootstrap_dir"
     exit "$bootstrap_status"
@@ -137,13 +169,13 @@ wrapper_is_expected_version() {
   grep -q "gradle-${EXPECTED_GRADLE_VERSION}-bin.zip" "$properties"
 }
 
-# Gradle 8.7 does not support running on JDK 25. Codespaces currently may
-# expose OpenJDK 25.0.4.1 by default, while this Android harness is pinned to
-# AGP 8.5.2 / Gradle 8.7 / JDK 17. Select JDK 17 before *any* Gradle command.
 select_jdk17
+select_android_sdk
 
 {
   echo "JAVA_HOME=$JAVA_HOME"
+  echo "ANDROID_HOME=$ANDROID_HOME"
+  echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
   echo "PATH=$PATH"
   echo
   java -version 2>&1
@@ -165,18 +197,13 @@ if ! grep -q "Gradle $EXPECTED_GRADLE_VERSION" <<<"$GRADLE_VERSION_OUTPUT"; then
 fi
 if ! grep -Eq 'JVM: +17([. ]|$)' <<<"$GRADLE_VERSION_OUTPUT"; then
   echo "[ETroute] ERROR: Gradle is not running on JDK 17." >&2
-  echo "[ETroute] Environment evidence: $ENV_LOG" >&2
   exit 2
 fi
 
 echo "[ETroute] Building Android JNI validation module (arm64-v8a + x86_64)."
 set +e
-"${GRADLE[@]}" \
-  --no-daemon \
-  --console=plain \
-  --stacktrace \
-  :android:assembleDebug \
-  :android:assembleDebugAndroidTest \
+"${GRADLE[@]}" --no-daemon --console=plain --stacktrace \
+  :android:assembleDebug :android:assembleDebugAndroidTest \
   2>&1 | tee "$BUILD_LOG"
 BUILD_STATUS=${PIPESTATUS[0]}
 set -e
@@ -200,7 +227,6 @@ fi
 
 echo "[ETroute] Connected Android targets:"
 adb devices -l
-
 mapfile -t DEVICES < <(adb devices | awk 'NR>1 && $2 == "device" {print $1}')
 if [[ ${#DEVICES[@]} -eq 0 ]]; then
   echo "[ETroute] Build/link verification passed, but no ready device/emulator is connected."
@@ -212,30 +238,21 @@ validated=0
 for serial in "${DEVICES[@]}"; do
   abi="$(adb -s "$serial" shell getprop ro.product.cpu.abi | tr -d '\r')"
   echo "[ETroute] target=$serial abi=$abi"
-
   case "$abi" in
     arm64-v8a|x86_64)
       device_log="$EVIDENCE_DIR/instrumentation-${serial//[^A-Za-z0-9_.-]/_}.log"
       set +e
-      ANDROID_SERIAL="$serial" "${GRADLE[@]}" \
-        --no-daemon \
-        --console=plain \
-        :android:connectedDebugAndroidTest \
-        2>&1 | tee "$device_log"
+      ANDROID_SERIAL="$serial" "${GRADLE[@]}" --no-daemon --console=plain \
+        :android:connectedDebugAndroidTest 2>&1 | tee "$device_log"
       TEST_STATUS=${PIPESTATUS[0]}
       set -e
-
       if [[ $TEST_STATUS -ne 0 ]]; then
-        echo "[ETroute] Instrumentation failed for target=$serial abi=$abi" >&2
         print_build_failure_summary "$device_log"
         exit "$TEST_STATUS"
       fi
-
       validated=$((validated + 1))
       ;;
-    *)
-      echo "[ETroute] Skipping unsupported validation ABI: $abi"
-      ;;
+    *) echo "[ETroute] Skipping unsupported validation ABI: $abi" ;;
   esac
 done
 
