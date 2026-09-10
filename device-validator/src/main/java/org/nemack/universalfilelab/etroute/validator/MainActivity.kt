@@ -206,6 +206,119 @@ class MainActivity : Activity() {
             }
         }
 
+        step("Working directory and stderr routing") {
+            val paths = workspaceManager.create("stdio-cwd-${UUID.randomUUID()}")
+            try {
+                val result = supervisor.run(
+                    launch(
+                        paths = paths,
+                        executable = "/system/bin/sh",
+                        arguments = listOf(
+                            "-c",
+                            "pwd; printf ETROUTE_STDERR_OK >&2"
+                        ),
+                        timeoutMs = 3_000,
+                        origin = "device-validator:stdio-cwd"
+                    )
+                )
+                val stdout = File(paths.diagnostics, "stdout.log").readText().trim()
+                val stderr = File(paths.diagnostics, "stderr.log").readText().trim()
+                check(result.succeeded) { "result=$result stderr=$stderr" }
+                check(stdout == paths.tmp.canonicalPath) {
+                    "cwd mismatch expected=${paths.tmp.canonicalPath} actual=$stdout"
+                }
+                check(stderr == "ETROUTE_STDERR_OK") {
+                    "stderr routing mismatch actual=$stderr"
+                }
+                "cwd=$stdout stderr=$stderr"
+            } finally {
+                finalizer.finalize(SessionFinalizationRequest(paths, preserveOutput = false))
+            }
+        }
+
+        step("Nonzero exit remains an exit result") {
+            val paths = workspaceManager.create("exit42-${UUID.randomUUID()}")
+            try {
+                val result = supervisor.run(
+                    launch(
+                        paths = paths,
+                        executable = "/system/bin/sh",
+                        arguments = listOf("-c", "exit 42"),
+                        timeoutMs = 3_000,
+                        origin = "device-validator:exit-42"
+                    )
+                )
+                check(result.stage == NativeSpawnStage.OK) { "stage=${result.stage}" }
+                check(!result.timedOut) { "unexpected timeout" }
+                check(result.spawnErrno == 0) { "unexpected errno=${result.spawnErrno}" }
+                check(result.signal == null) { "unexpected signal=${result.signal}" }
+                check(result.exitCode == 42) { "exit=${result.exitCode}" }
+                check(!result.succeeded) { "nonzero exit incorrectly reported success" }
+                "stage=${result.stage} exit=${result.exitCode}"
+            } finally {
+                finalizer.finalize(SessionFinalizationRequest(paths, preserveOutput = false))
+            }
+        }
+
+        step("Signal termination remains distinct from exit") {
+            val paths = workspaceManager.create("signal-${UUID.randomUUID()}")
+            try {
+                val result = supervisor.run(
+                    launch(
+                        paths = paths,
+                        executable = "/system/bin/sh",
+                        arguments = listOf("-c", "kill -TERM \$\$"),
+                        timeoutMs = 3_000,
+                        origin = "device-validator:signal-term"
+                    )
+                )
+                check(result.stage == NativeSpawnStage.OK) { "stage=${result.stage}" }
+                check(!result.timedOut) { "unexpected timeout" }
+                check(result.spawnErrno == 0) { "unexpected errno=${result.spawnErrno}" }
+                check(result.signal == android.system.OsConstants.SIGTERM) {
+                    "expected SIGTERM=${android.system.OsConstants.SIGTERM}, got ${result.signal}"
+                }
+                check(result.exitCode == null) { "unexpected exit=${result.exitCode}" }
+                check(!result.succeeded) { "signal termination incorrectly reported success" }
+                "stage=${result.stage} signal=${result.signal}"
+            } finally {
+                finalizer.finalize(SessionFinalizationRequest(paths, preserveOutput = false))
+            }
+        }
+
+        step("EXECVE EACCES preserves permission failure") {
+            val paths = workspaceManager.create("eacces-${UUID.randomUUID()}")
+            try {
+                val denied = File(paths.tmp, "not-executable.sh").apply {
+                    writeText("#!/system/bin/sh\nexit 0\n")
+                    check(setReadable(true, true)) { "unable to set read permission" }
+                    check(setWritable(true, true)) { "unable to set write permission" }
+                    check(setExecutable(false, false)) { "unable to clear execute permission" }
+                }
+                check(denied.isFile) { "permission-test file missing" }
+                check(!denied.canExecute()) { "permission-test file is unexpectedly executable" }
+
+                val result = supervisor.run(
+                    launch(
+                        paths = paths,
+                        executable = denied.canonicalPath,
+                        arguments = emptyList(),
+                        timeoutMs = 3_000,
+                        origin = "device-validator:exec-eacces"
+                    )
+                )
+                check(result.stage == NativeSpawnStage.EXECVE) { "stage=${result.stage}" }
+                check(result.spawnErrno == android.system.OsConstants.EACCES) {
+                    "expected EACCES=${android.system.OsConstants.EACCES}, got ${result.spawnErrno}"
+                }
+                check(result.exitCode == 127) { "exit=${result.exitCode}" }
+                check(!result.timedOut) { "unexpected timeout" }
+                "stage=${result.stage} errno=${result.spawnErrno} exit=${result.exitCode}"
+            } finally {
+                finalizer.finalize(SessionFinalizationRequest(paths, preserveOutput = false))
+            }
+        }
+
         step("Timeout kills process group") {
             val paths = workspaceManager.create("timeout-${UUID.randomUUID()}")
             try {
@@ -222,6 +335,9 @@ class MainActivity : Activity() {
                 val stderr = readDiagnostic(File(paths.diagnostics, "stderr.log"))
                 check(result.timedOut) { "timedOut=false result=$result stderr=${stderr.ifBlank { "<empty>" }}" }
                 check(result.stage == NativeSpawnStage.TIMEOUT_KILL) { "stage=${result.stage} stderr=$stderr" }
+                check(result.signal == android.system.OsConstants.SIGKILL) {
+                    "expected SIGKILL=${android.system.OsConstants.SIGKILL}, got ${result.signal}"
+                }
                 "stage=${result.stage} signal=${result.signal} durationMs=${result.durationMs}"
             } finally {
                 finalizer.finalize(
