@@ -59,7 +59,7 @@ jobs:
             -not -path './.git/*' \
             -not -path './.venv/*' \
             -not -path './venv/*' \
-            -not -path './build/*' \
+            -not -path '*/build/*' \
             -not -path './dist/*' \
             | sort)
 
@@ -101,7 +101,8 @@ jobs:
             -not -path './.git/*' \
             -not -path './__pycache__/*' \
             -not -path './tests/__pycache__/*' \
-            -not -path './tools/__pycache__/*' || true)
+            -not -path './tools/__pycache__/*' \
+            -not -path '*/build/*' || true)
 
           if [ -n "$BAD_FILES" ]; then
             echo "Disallowed generated/sensitive file patterns found:" | tee etroute_hygiene.txt
