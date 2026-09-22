@@ -27,6 +27,18 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.13
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '8.13'
+          cache-disabled: true
+
       - name: Repository inventory
         run: |
           set -euo pipefail
@@ -69,6 +81,13 @@ jobs:
           else
             echo "No unittest-style Python tests discovered under tests/; test step not applicable." | tee etroute_tests.txt
           fi
+
+      - name: Android compile and JNI build gate
+        env:
+          ETROUTE_BUILD_ONLY: '1'
+        run: |
+          set -euo pipefail
+          bash tools/run_android_jni_validation.sh
 
       - name: Repository hygiene
         if: always()
@@ -118,5 +137,6 @@ jobs:
             etroute_tests.txt
             etroute_hygiene.txt
             etroute_validation_summary.md
+            evidence/android_jni/latest/
           if-no-files-found: ignore
           retention-days: 7
