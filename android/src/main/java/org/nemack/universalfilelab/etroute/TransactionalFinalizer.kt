@@ -50,7 +50,7 @@ class TransactionalSessionFinalizer(
         nowEpochMs: Long = System.currentTimeMillis()
     ): TransactionalFinalizationResult {
         val paths = request.paths
-        val receiptFile = File(paths.diagnostics, RECEIPT_NAME)
+        val receiptFile = File(paths.root, RECEIPT_NAME)
         val existingReceipt = readReceipt(receiptFile)
 
         val current = journal.initialize(paths.sessionId, nowEpochMs)
@@ -59,10 +59,7 @@ class TransactionalSessionFinalizer(
                 "FINALIZED session is missing finalization receipt"
             }
             val cleanup = finalizer.finalize(
-                request.copy(
-                    exportSink = null,
-                    diagnosticNames = request.diagnosticNames + RECEIPT_NAME
-                )
+                request.copy(exportSink = null)
             )
             return TransactionalFinalizationResult(
                 receipt = existingReceipt,
@@ -93,10 +90,7 @@ class TransactionalSessionFinalizer(
         ).also { writeReceipt(receiptFile, it) }
 
         val cleanup = finalizer.finalize(
-            request.copy(
-                exportSink = null,
-                diagnosticNames = request.diagnosticNames + RECEIPT_NAME
-            )
+            request.copy(exportSink = null)
         )
 
         check(cleanup.cleaned) {
@@ -194,7 +188,7 @@ class TransactionalSessionFinalizer(
     }
 
     companion object {
-        const val RECEIPT_NAME = "etroute-final.json"
+        const val RECEIPT_NAME = "finalization-receipt.json"
     }
 }
 
