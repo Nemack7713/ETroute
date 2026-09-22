@@ -34,7 +34,7 @@ class TransactionalFinalizerAndroidTest {
         val request = SessionFinalizationRequest(
             paths = paths,
             preserveOutput = true,
-            retainDiagnostics = true
+            retainDiagnostics = false
         )
 
         val first = TransactionalSessionFinalizer().finalize(
@@ -47,7 +47,8 @@ class TransactionalFinalizerAndroidTest {
         assertEquals(1, calls.get())
         assertTrue(first.cleanup.cleaned)
         assertTrue(first.cleanup.outputPreserved)
-        assertTrue(File(paths.diagnostics, TransactionalSessionFinalizer.RECEIPT_NAME).isFile)
+        assertTrue(File(paths.root, TransactionalSessionFinalizer.RECEIPT_NAME).isFile)
+        assertTrue(!paths.diagnostics.exists())
         assertEquals(SessionJournalState.FINALIZED, journal.read()!!.state)
 
         val second = TransactionalSessionFinalizer().finalize(
