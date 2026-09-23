@@ -40,7 +40,8 @@ data class RunReport(
     val result: NativeRunResult,
     val packId: String? = null,
     val generationId: GenerationId? = null,
-    val toolId: String? = null
+    val toolId: String? = null,
+    val toolchainGenerations: Map<String, GenerationId> = emptyMap()
 ) {
     init {
         require(sessionId.isNotBlank()) { "sessionId cannot be blank" }
@@ -51,6 +52,11 @@ data class RunReport(
         require(toolMetadataCount == 0 || toolMetadataCount == 3) {
             "packId, generationId, and toolId must be supplied together"
         }
+        toolchainGenerations.keys.forEach { key ->
+            require(key.matches(Regex("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}"))) {
+                "invalid toolchain generation key: $key"
+            }
+        }
     }
 
     companion object {
@@ -58,7 +64,8 @@ data class RunReport(
             launch: PreparedLaunch,
             result: NativeRunResult,
             resolvedTool: ResolvedTool? = null,
-            cancelled: Boolean = false
+            cancelled: Boolean = false,
+            toolchainGenerations: Map<String, GenerationId> = emptyMap()
         ): RunReport =
             RunReport(
                 sessionId = launch.sessionId,
@@ -68,7 +75,8 @@ data class RunReport(
                 result = result,
                 packId = resolvedTool?.packId,
                 generationId = resolvedTool?.generationId,
-                toolId = resolvedTool?.descriptor?.toolId
+                toolId = resolvedTool?.descriptor?.toolId,
+                toolchainGenerations = toolchainGenerations.toSortedMap()
             )
     }
 }
