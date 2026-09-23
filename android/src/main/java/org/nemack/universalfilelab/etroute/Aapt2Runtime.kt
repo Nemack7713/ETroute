@@ -1,5 +1,7 @@
 package org.nemack.universalfilelab.etroute
 
+import java.io.File
+
 data class Aapt2RuntimeBinding(
     val lease: GenerationLease,
     val aapt2Tool: ResolvedTool
@@ -84,8 +86,8 @@ class ApktoolLaunchPlanner {
         }
         require(timeoutMs > 0) { "timeoutMs must be greater than zero" }
 
-        val stdout = java.io.File(session.diagnostics, "stdout.log")
-        val stderr = java.io.File(session.diagnostics, "stderr.log")
+        val stdout = File(session.diagnostics, "stdout.log")
+        val stderr = File(session.diagnostics, "stderr.log")
 
         val launch = PreparedLaunch(
             executable = java.javaTool.artifact.canonicalPath,
