@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.ActivityManager
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Intent
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
@@ -12,6 +13,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import org.nemack.universalfilelab.etroute.Aapt2CandidateImporter
 import org.nemack.universalfilelab.etroute.EtRouteSessionRunner
 import org.nemack.universalfilelab.etroute.EtRouteWorkspaceManager
 import org.nemack.universalfilelab.etroute.JniNativeSupervisor
@@ -28,6 +30,8 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var runButton: Button
     private lateinit var copyButton: Button
+    private lateinit var aapt2Button: Button
+    private lateinit var aapt2Status: TextView
     private var latestReport: String = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -58,6 +62,19 @@ class MainActivity : Activity() {
             setOnClickListener { runValidation() }
         }
 
+        aapt2Button = Button(this).apply {
+            text = "SELECT AAPT2 CANDIDATE"
+            setOnClickListener { selectAapt2Candidate() }
+        }
+
+        aapt2Status = TextView(this).apply {
+            text = "AAPT2 candidate: not selected"
+            textSize = 12f
+            setTextColor(Color.LTGRAY)
+            typeface = android.graphics.Typeface.MONOSPACE
+            setPadding(0, dp(8), 0, dp(12))
+        }
+
         copyButton = Button(this).apply {
             text = "COPY REPORT"
             isEnabled = false
@@ -78,11 +95,79 @@ class MainActivity : Activity() {
         content.addView(title)
         content.addView(subtitle)
         content.addView(runButton)
+        content.addView(aapt2Button)
+        content.addView(aapt2Status)
         content.addView(copyButton)
         content.addView(status)
 
         val scroll = ScrollView(this).apply { addView(content) }
         setContentView(scroll)
+    }
+
+
+    private fun selectAapt2Candidate() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+        }
+        startActivityForResult(intent, REQUEST_AAPT2_CANDIDATE)
+    }
+
+    @Deprecated("Activity result API retained to avoid adding an AndroidX activity dependency")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQUEST_AAPT2_CANDIDATE || resultCode != RESULT_OK) return
+
+        val uri = data?.data ?: run {
+            aapt2Status.text = "AAPT2 candidate import failed: no URI returned"
+            return
+        }
+
+        runCatching {
+            contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        }
+
+        aapt2Button.isEnabled = false
+        aapt2Status.text = "Importing and verifying pinned AAPT2 candidate…"
+
+        Thread {
+            val report = runCatching {
+                val candidate = Aapt2CandidateImporter(applicationContext)
+                    .importFromUri(uri)
+                buildString {
+                    appendLine("AAPT2_CANDIDATE_IMPORT=PASSED")
+                    appendLine("generationId=${candidate.verified.generationId.value}")
+                    appendLine("sha256=${candidate.sha256}")
+                    appendLine("sourceRepository=${candidate.sourcePolicy.repository}")
+                    appendLine("sourceCommit=${candidate.sourcePolicy.commit}")
+                    appendLine("sourcePath=${candidate.sourcePolicy.path}")
+                    appendLine("abi=arm64-v8a")
+                    appendLine("minApi=${candidate.sourcePolicy.minApi}")
+                    appendLine("reusedExistingCandidate=${candidate.reusedExistingCandidate}")
+                    appendLine("trustGranted=false")
+                    appendLine("published=false")
+                    appendLine("runtimeSmokeVerified=false")
+                    appendLine("candidateRoot=${candidate.root.path}")
+                    appendLine("evidence=${candidate.evidenceFile.path}")
+                }
+            }.getOrElse { error ->
+                buildString {
+                    appendLine("AAPT2_CANDIDATE_IMPORT=FAILED")
+                    appendLine("fatal=${error::class.java.name}")
+                    appendLine("message=${error.message}")
+                }
+            }
+
+            runOnUiThread {
+                aapt2Status.text = report
+                aapt2Button.isEnabled = true
+            }
+        }.start()
     }
 
     private fun runValidation() {
@@ -362,5 +447,6 @@ class MainActivity : Activity() {
         private const val MIB = 1024L * 1024L
         private const val GIB = 1024L * MIB
         private const val MAX_INLINE_DIAGNOSTIC_BYTES = 8 * 1024
+        private const val REQUEST_AAPT2_CANDIDATE = 1202
     }
 }
