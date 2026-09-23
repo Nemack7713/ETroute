@@ -16,7 +16,8 @@ data class SessionFinalizationReceipt(
     val sessionId: String,
     val outputSha256: String,
     val exportedTo: String?,
-    val finalizedAtEpochMs: Long
+    val finalizedAtEpochMs: Long,
+    val evidenceManifestSha256: String? = null
 ) {
     init {
         require(schemaVersion == SUPPORTED_SCHEMA_VERSION) {
@@ -27,6 +28,11 @@ data class SessionFinalizationReceipt(
             "outputSha256 must be a lowercase SHA-256 digest"
         }
         require(finalizedAtEpochMs >= 0) { "finalizedAtEpochMs cannot be negative" }
+        evidenceManifestSha256?.let { digest ->
+            require(digest.matches(Regex("[0-9a-f]{64}"))) {
+                "evidenceManifestSha256 must be a lowercase SHA-256 digest"
+            }
+        }
     }
 
     companion object {
@@ -51,7 +57,18 @@ class TransactionalSessionFinalizer(
     ): TransactionalFinalizationResult {
         val paths = request.paths
         val receiptFile = File(paths.root, RECEIPT_NAME)
+        val evidenceManifestFile = File(
+            File(paths.root, SessionEvidenceStore.EVIDENCE_DIRECTORY),
+            SessionEvidenceStore.MANIFEST_NAME
+        )
+        val currentEvidenceHash = hashFileIfPresent(evidenceManifestFile)
         val existingReceipt = readReceipt(receiptFile)
+
+        if (existingReceipt != null) {
+            require(existingReceipt.evidenceManifestSha256 == currentEvidenceHash) {
+                "session evidence changed after finalization receipt creation"
+            }
+        }
 
         val current = journal.initialize(paths.sessionId, nowEpochMs)
         if (current.state == SessionJournalState.FINALIZED) {
@@ -86,7 +103,8 @@ class TransactionalSessionFinalizer(
             sessionId = paths.sessionId,
             outputSha256 = outputHash,
             exportedTo = exportedTo,
-            finalizedAtEpochMs = nowEpochMs
+            finalizedAtEpochMs = nowEpochMs,
+            evidenceManifestSha256 = currentEvidenceHash
         ).also { writeReceipt(receiptFile, it) }
 
         val cleanup = finalizer.finalize(
@@ -139,6 +157,20 @@ class TransactionalSessionFinalizer(
         return digest.digest().toHex()
     }
 
+    private fun hashFileIfPresent(file: File): String? {
+        if (!file.isFile) return null
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val count = input.read(buffer)
+                if (count <= 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().toHex()
+    }
+
     private fun readReceipt(file: File): SessionFinalizationReceipt? {
         if (!file.isFile && !File(file.path + ".bak").isFile) return null
         val atomic = AtomicFile(file)
@@ -151,7 +183,15 @@ class TransactionalSessionFinalizer(
             sessionId = json.getString("sessionId"),
             outputSha256 = json.getString("outputSha256"),
             exportedTo = if (json.isNull("exportedTo")) null else json.getString("exportedTo"),
-            finalizedAtEpochMs = json.getLong("finalizedAtEpochMs")
+            finalizedAtEpochMs = json.getLong("finalizedAtEpochMs"),
+            evidenceManifestSha256 = if (
+                !json.has("evidenceManifestSha256") ||
+                json.isNull("evidenceManifestSha256")
+            ) {
+                null
+            } else {
+                json.getString("evidenceManifestSha256")
+            }
         )
     }
 
@@ -172,6 +212,11 @@ class TransactionalSessionFinalizer(
                 put("exportedTo", receipt.exportedTo)
             }
             put("finalizedAtEpochMs", receipt.finalizedAtEpochMs)
+            if (receipt.evidenceManifestSha256 == null) {
+                put("evidenceManifestSha256", JSONObject.NULL)
+            } else {
+                put("evidenceManifestSha256", receipt.evidenceManifestSha256)
+            }
         }.toString()
 
         val atomic = AtomicFile(file)
