@@ -201,6 +201,7 @@ def build_candidate_manifest(
     sha256: str,
     size: int,
     java_pack_id: str,
+    aapt2_pack_id: str,
 ) -> dict[str, Any]:
     version = tag.removeprefix("v")
     return {
@@ -228,6 +229,10 @@ def build_candidate_manifest(
             {
                 "packId": java_pack_id,
                 "requiredGenerationId": None,
+            },
+            {
+                "packId": aapt2_pack_id,
+                "requiredGenerationId": None,
             }
         ],
         "tools": [
@@ -245,6 +250,7 @@ def prepare_candidate(
     *,
     expected_tag: str | None = None,
     java_pack_id: str = "org.etroute.java",
+    aapt2_pack_id: str = "org.etroute.aapt2",
 ) -> dict[str, Any]:
     release = _request_json(LATEST_RELEASE_API)
     tag, asset_name, digest, size = select_release_asset(
@@ -282,6 +288,7 @@ def prepare_candidate(
             sha256=actual_digest,
             size=size,
             java_pack_id=java_pack_id,
+            aapt2_pack_id=aapt2_pack_id,
         )
         evidence = {
             "status": "VERIFIED_CANDIDATE",
@@ -315,6 +322,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("destination", type=Path)
     parser.add_argument("--expected-tag")
     parser.add_argument("--java-pack-id", default="org.etroute.java")
+    parser.add_argument("--aapt2-pack-id", default="org.etroute.aapt2")
     return parser
 
 
@@ -325,6 +333,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.destination,
             expected_tag=args.expected_tag,
             java_pack_id=args.java_pack_id,
+            aapt2_pack_id=args.aapt2_pack_id,
         )
     except CandidateError as exc:
         print(f"APKTOOL_CANDIDATE FAILED: {exc}", file=os.sys.stderr)
