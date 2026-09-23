@@ -1,166 +1,226 @@
-# ETroute / ETumax Apktool RuntimePack Assimilation
+# ETroute / ETumax Apktool + AAPT2 RuntimePack Assimilation
 
 ## Purpose
 
-Integrate the useful Android/Termux compatibility ideas demonstrated by
-`h4ck3r0/Apktool-termux` into ETroute/ETumax without making Termux, PRoot,
-interactive installers, or mutable global package state part of the production
-execution path.
+Use `rendiix/termux-apktool` as the Android-native compatibility reference
+for Apktool-related resource tooling while keeping ETroute/ETumax independent
+from Termux, PRoot, package-manager mutation, and mutable global tool state.
 
-This document is an architectural integration specification. The validated
-NativeSupervisor/JNI boundary remains frozen.
+The validated NativeSupervisor/JNI boundary remains frozen.
 
-## Source-derived behavior worth preserving
+## Replacement reference
 
-The reviewed Apktool-termux repository currently provides these useful ideas:
+The earlier `h4ck3r0/Apktool-termux` reference is superseded for ETroute
+architecture work by:
 
-- dependency probing before installation;
-- Java availability through OpenJDK 17 in Termux;
-- `aapt` availability;
-- automatic discovery of the latest official Apktool GitHub release;
-- download of the official Apktool JAR;
-- download of the official Linux wrapper;
-- Termux-specific wrapper/shebang normalization;
-- a post-install `apktool -version` verification;
-- a simple recovery path for missing Java.
+`https://github.com/rendiix/termux-apktool`
 
-Its README also suggests `proot -0` for some Android/Java failures. ETroute
-must NOT assimilate that behavior because PRoot is excluded from the production
-execution path.
+The reviewed repository demonstrates these useful Android-specific ideas:
 
-The Termux project additionally installs UI-only tools such as `toilet` and
-`lolcat`; ETroute does not need those dependencies.
+- Apktool operation on Termux without PRoot or root;
+- architecture-specific packages for aarch64, arm, i686, and x86_64;
+- Android-native resource tooling packaged together with Apktool;
+- a maintainer-described process for compiling `aapt` from source by
+  translating Android.bp build information into a CMake build;
+- direct package installation as a practical Android-host distribution model.
+
+The repository currently carries an Apktool 2.8.2 Termux snapshot and its last
+code push is from 2023. ETroute therefore treats it as an Android-native
+compatibility/build reference, not as the authoritative current Apktool release
+source.
+
+## Source-of-truth split
+
+ETroute uses separate authorities for separate concerns:
+
+```
+rendiix/termux-apktool
+    -> Android-native compatibility/build reference
+
+iBotPeaches/Apktool
+    -> Apktool JAR and Apktool release identity
+
+AOSP / reproducibly validated Android-native build
+    -> AAPT2 implementation source
+
+ETroute RuntimePack admission
+    -> final executable trust decision
+```
+
+No third-party installer script is executed as part of the ETroute production
+path.
 
 ## Licensing boundary
 
-`h4ck3r0/Apktool-termux` is GPL-3.0.
+The replacement `rendiix/termux-apktool` repository declares Apache-2.0.
+The official `iBotPeaches/Apktool` repository is also Apache-2.0.
 
-The upstream `iBotPeaches/Apktool` repository is Apache-2.0. The official
-Linux wrapper is also Apache-2.0.
+ETroute still prefers assimilation over copying:
 
-Therefore ETroute should assimilate behavior and compatibility knowledge rather
-than copy the GPL installer scripts into ETroute core. Where practical, acquire
-the official Apktool release artifact directly from upstream and record its
-release identity and digest in ETroute evidence.
+- preserve attribution and source provenance;
+- acquire or build artifacts independently;
+- hash and verify every admitted artifact;
+- do not copy installer behavior that mutates Termux `$PREFIX`;
+- do not silently inherit repository package versions.
 
-No third-party source should be vendored into ETroute core until its license,
-notices, and redistribution requirements have been explicitly reviewed.
+## RuntimePack family
 
-## ETroute-native design
+The Android Apktool capability is a composition of independent generations:
 
-The functionality becomes an optional RuntimePack family:
+```
+org.etroute.java
+    <Java Generation J>
+
+org.etroute.aapt2
+    <AAPT2 Generation R>
+
+org.etroute.apktool
+    <Apktool Generation A>
+        requires Java J
+        requires AAPT2 R
+```
+
+The three packs remain independently replaceable and independently verified.
+
+## Apktool RuntimePack
 
 ```
 apktool/
-  manifest.json
-  artifacts/
-    apktool_<version>.jar
-  evidence/
-    upstream-release.json
-    hashes.json
-    admission.json
+  <GenerationId>/
+    manifest.canonical.json
+    artifacts/
+      apktool_<version>.jar
 ```
 
-Java is not hidden inside the Apktool pack. It is represented as a separately
-verified dependency:
+Normal execution avoids a shell wrapper:
 
 ```
-java-runtime/
-  <generation>/
-
-apktool/
-  <generation>/
+<absolute-java>
+  <validated JVM options>
+  -jar
+  <absolute verified apktool.jar>
+  <apktool args>
+  --aapt
+  <absolute admitted aapt2>
 ```
 
-An Apktool ToolDescriptor references the admitted Java RuntimePack generation.
+No PATH lookup is required in the child.
 
-The production invocation should normally avoid a shell wrapper entirely:
+## AAPT2 RuntimePack
+
+AAPT2 is a first-class RuntimePack, not an incidental helper:
 
 ```
-<absolute-java> <validated-java-options> -jar <absolute-apktool-jar> <args...>
+aapt2/
+  <GenerationId>/
+    manifest.canonical.json
+    artifacts/
+      aapt2
 ```
 
-This preserves the useful intent of the upstream wrapper while keeping
-PreparedLaunch explicit and avoiding PATH-dependent execution.
+Its ToolDescriptor is:
+
+```
+packId = org.etroute.aapt2
+toolId = aapt2
+kind = NATIVE_EXECUTABLE
+abi = arm64-v8a
+```
+
+A candidate is not admissible merely because it runs in Termux.
+
+Required evidence includes:
+
+```
+ELF class
+ELF endianness
+e_machine
+program interpreter
+DT_NEEDED inventory
+SHA-256
+file size
+Android API policy
+executable permission
+runtime version/probe
+resource compile smoke test
+resource link smoke test
+```
+
+For the current physical target, the production lane is arm64-v8a.
 
 ## Admission pipeline
 
 ```
-DISCOVER
-  -> ACQUIRE
+DISCOVER / BUILD
+  -> STAGE
   -> HASH
   -> VERIFY SOURCE METADATA
-  -> VERIFY JAR
+  -> VERIFY ARTIFACT FORMAT
+  -> VERIFY ABI
+  -> INVENTORY NATIVE LINKAGE
   -> VERIFY JAVA DEPENDENCY
-  -> VERIFY OPTIONAL AAPT/AAPT2 DEPENDENCY
-  -> SMOKE TEST
+  -> VERIFY AAPT2 DEPENDENCY
+  -> RUNTIME PROBE
+  -> APKTOOL VERSION PROBE
+  -> DECODE SMOKE TEST
+  -> RESOURCE COMPILE/LINK SMOKE TEST
+  -> REBUILD SMOKE TEST
   -> VERIFIED
   -> USER TRUST APPROVAL
   -> ADMITTED
   -> IMMUTABLE GENERATION PUBLISHED
 ```
 
-No installer script may modify a published generation in place.
+Technical verification remains separate from user trust approval.
 
-A new upstream release creates a new candidate generation. Existing sessions
-retain leases on their original generation until they terminate and finalize.
+## Apktool manifest dependency model
 
-## Required RuntimePack metadata
-
-At minimum:
+A candidate Apktool manifest declares both dependencies:
 
 ```json
 {
-  "schemaVersion": 1,
-  "packId": "org.etroute.apktool",
-  "version": "<upstream version>",
-  "generationId": "<content-derived identity>",
-  "provenance": "EXTERNAL_SIGNED_OR_VERIFIED",
-  "source": {
-    "repository": "iBotPeaches/Apktool",
-    "releaseTag": "<tag>",
-    "assetName": "<jar>",
-    "assetSha256": "<sha256>"
-  },
   "dependencies": [
     {
       "packId": "org.etroute.java",
-      "minimumMajor": 17
-    }
-  ],
-  "tools": [
+      "requiredGenerationId": null
+    },
     {
-      "toolId": "apktool",
-      "kind": "JAVA_JAR",
-      "artifact": "artifacts/<jar>"
+      "packId": "org.etroute.aapt2",
+      "requiredGenerationId": null
     }
   ]
 }
 ```
 
-The canonical manifest plus verified artifact hashes determines GenerationId.
+Before production admission, those dependencies should be pinned to exact
+GenerationIds.
+
+A production RunReport must identify all three generations:
+
+```
+apktoolGeneration = A
+javaGeneration = J
+aapt2Generation = R
+```
 
 ## Capability surface
 
-ETumax should expose operations rather than arbitrary shell strings:
+ETumax exposes capabilities rather than arbitrary shell strings:
 
 - `apktool.version`
 - `apktool.decode`
 - `apktool.build`
+- `apktool.inspect`
 - `apktool.framework.install`
 - `apktool.framework.list`
 - `apktool.framework.remove`
-- `apktool.inspect`
 
-The initial release should prioritize `version`, `decode`, `build`, and
-read-only inspection.
+The initial release prioritizes version, decode, build, and read-only
+inspection.
 
-Inputs must come through the ETroute session input boundary and outputs must be
-written under the session output boundary.
+## Filesystem model
 
-## Safety and filesystem model
-
-Each invocation receives an ETroute-owned session:
+Each invocation remains confined to an ETroute session:
 
 ```
 workspace/input/
@@ -169,135 +229,129 @@ workspace/output/
 diagnostics/
 ```
 
-Decoded projects and rebuilt APKs are output artifacts, never runtime-pack
-state.
+Decoded projects and rebuilt APKs are output artifacts, never RuntimePack state.
 
-Framework files/cache, if needed, must live in an ETroute-owned versioned cache
-outside the immutable RuntimePack generation and must have explicit ownership,
-hashing, and cleanup policy.
-
-The pack must not write to Termux `$PREFIX`, shared storage, or arbitrary
-application directories.
-
-## Java compatibility adaptation
-
-The Apktool-termux project solves Java availability using Termux
-`pkg install openjdk-17`.
-
-ETroute instead needs a Java capability resolver:
-
-1. resolve an already admitted compatible Java RuntimePack;
-2. verify absolute executable path;
-3. verify Java major version;
-4. verify Android ABI/API compatibility of native JVM components;
-5. establish Java home/library environment in the parent;
-6. smoke-test `java -version`;
-7. only then allow the Apktool ToolDescriptor to become executable.
-
-No automatic package-manager installation occurs in the execution path.
-
-## AAPT/AAPT2 adaptation
-
-Apktool-termux installs Termux `aapt`. The official Apktool wrapper also adds
-its own directory to PATH so an adjacent `aapt2` can be found.
-
-ETroute should model these as explicit optional tool dependencies rather than
-relying on PATH:
+Framework state must not mutate the Apktool generation. If framework support is
+enabled, it lives in a separately managed cache such as:
 
 ```
-ToolDescriptor(apktool)
-  -> Java ToolDescriptor
-  -> optional AAPT/AAPT2 ToolDescriptor
+filesDir/etroute/caches/apktool-frameworks/<framework-identity>/
 ```
 
-If Apktool can complete a requested operation without an external AAPT/AAPT2
-dependency, none is injected.
+Framework-cache evidence should include source hash, package ID/tag, Apktool
+GenerationId, and creation time.
 
-## Release/update behavior
+## Java compatibility
 
-Do not reproduce the Termux script's "always install latest directly into
-$PREFIX/bin" behavior.
+Java remains a separate RuntimePack.
 
-Instead:
+ETroute verifies:
+
+1. admitted Java generation;
+2. absolute Java executable;
+3. Java home;
+4. runtime version probe;
+5. Android ABI/API compatibility of native JVM components;
+6. successful `java -version`;
+7. successful `java -jar apktool.jar --version`.
+
+Java requirements are treated as version-tested compatibility evidence rather
+than being hard-coded only from installer assumptions.
+
+## AAPT2 build/research lane
+
+The rendiix maintainer stated that their Android-native aapt work was compiled
+from source using CMake after translating Android.bp build information.
+
+ETroute preserves that as a reproducibility research lane:
 
 ```
-check upstream
-  -> report candidate version
-  -> acquire to staging
-  -> verify digest/source
-  -> execute smoke tests
-  -> mark VERIFIED
-  -> request explicit trust/admission
-  -> publish new immutable generation
+AOSP resource-tool sources
+    -> Android.bp dependency analysis
+    -> controlled CMake/Android-native build
+    -> arm64-v8a aapt2
+    -> ELF/linkage validation
+    -> RuntimePack candidate
+    -> trust/admission
 ```
 
-Updates are therefore reversible and do not affect running sessions.
+The old rendiix 2.8.2 package may be used as a compatibility reference or
+controlled comparison artifact, but it is not automatically promoted to the
+production RuntimePack.
+
+## Post-build separation
+
+Apktool rebuild output is not considered a final installable release artifact.
+
+The wider Android artifact pipeline remains:
+
+```
+Apktool rebuild
+    -> unsigned APK
+    -> zipalign -P 16
+    -> signing
+    -> zipalign -c -P 16
+    -> signature verification
+    -> final artifact evidence
+```
+
+Zipalign and signing remain separate capabilities from Apktool.
 
 ## Smoke tests
 
-A candidate generation cannot be admitted until all applicable tests pass:
+Before admission, all applicable tests must pass:
 
-- Java probe;
-- `apktool --version` or equivalent;
-- decode a known-good minimal APK fixture;
-- verify decoded manifest/resources are present;
-- rebuild the fixture;
-- verify rebuilt output is a ZIP/APK;
-- preserve stdout/stderr and exit classification;
-- hash all produced evidence;
+- Java runtime probe;
+- AAPT2 runtime/version probe;
+- AAPT2 minimal resource compile;
+- AAPT2 minimal resource link;
+- Apktool version probe using the admitted Java generation;
+- decode known-good minimal APK fixture;
+- verify decoded manifest/resources;
+- rebuild fixture while injecting admitted AAPT2;
+- verify rebuilt output is a valid ZIP/APK;
+- preserve stdout/stderr and termination classification;
+- hash all evidence;
 - reject writes outside ETroute workspace/cache policy.
 
-For final Android validation, repeat the smoke test on the physical arm64
-device through the existing NativeSupervisor path.
+Final Android acceptance repeats the end-to-end test on the physical arm64
+device through NativeSupervisor.
 
 ## ETumax integration
 
-ETumax requests a capability, not a binary path:
-
 ```
 ETumax
-  -> "apktool.decode"
-  -> RuntimePackRegistry
-  -> acquire GenerationLease
-  -> resolve ToolDescriptor
-  -> PreparedLaunch
+  -> apktool.decode / apktool.build
+  -> acquire Apktool GenerationLease
+  -> acquire Java GenerationLease
+  -> acquire AAPT2 GenerationLease
+  -> resolve ToolDescriptors
+  -> construct PreparedLaunch
   -> NativeSupervisor
   -> RunReport
-  -> RuntimeSessionFinalizer
-  -> release GenerationLease
+  -> transactional finalization
+  -> release all generation leases
 ```
 
-RunReport must identify the exact Apktool and Java GenerationIds used.
+## Deliberately not assimilated
 
-## What is deliberately not assimilated
+- PRoot or `proot -0`;
+- root requirement;
+- implicit `pkg install` / `apt install`;
+- mutable installation into Termux `$PREFIX`;
+- PATH-dependent child execution;
+- direct execution of third-party install scripts;
+- silent replacement by an unverified newer version;
+- use of the old 2.8.2 snapshot as the production Apktool source of truth;
+- combining alignment/signing acceptance into the Apktool capability.
 
-- PRoot fallback;
-- `proot -0`;
-- implicit `pkg install`;
-- mutable installation into `$PREFIX/bin`;
-- interactive menu UI;
-- decorative dependencies;
-- PATH search in the child;
-- unverified latest-version replacement;
-- installation-time browser launching.
+## Implementation order from this revision
 
-## Initial implementation order
-
-1. RuntimePack manifest / GenerationId / ToolDescriptor / VerifiedRuntimePack.
-2. Generation leases and immutable publication.
-3. Java capability/runtime-pack resolver.
-4. Apktool candidate acquisition and upstream metadata verification.
-5. Apktool ToolDescriptor and smoke test.
-6. ETumax capability routing.
-7. RunReport + transactional session finalization.
-8. Physical-device regression gate.
-9. Only after the above, optional framework-cache management and richer
-   Apktool operations.
-
-## Current upstream observation
-
-At the time this specification was written, the official Apktool GitHub latest
-release API reported v3.0.3 and published a SHA-256 digest for its JAR asset.
-This value is evidence for the observed candidate only and must not be treated
-as a permanent "latest" pin. Future updates must pass the same admission
-pipeline.
+1. AAPT2 first-class RuntimePack resolver.
+2. Apktool candidate manifests declare Java + AAPT2 dependencies.
+3. Android-native ELF/linkage candidate inspection for AAPT2.
+4. AAPT2 compile/link smoke-test capability.
+5. Apktool launch planner injects the admitted AAPT2 absolute path.
+6. RunReport records Apktool + Java + AAPT2 generations.
+7. Framework-cache isolation.
+8. Physical arm64 decode/rebuild regression gate.
