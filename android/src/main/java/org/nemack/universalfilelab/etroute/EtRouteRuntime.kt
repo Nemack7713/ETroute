@@ -57,15 +57,17 @@ class EtRouteWorkspaceManager(context: Context) {
 /** Canonicalizes and validates every filesystem-sensitive launch field before JNI. */
 class PreparedLaunchValidator(
     context: Context,
-    private val session: RuntimeSessionPaths
+    private val session: RuntimeSessionPaths,
+    allowedRuntimePackExecutables: Set<File> = emptySet()
 ) {
     private val appContext = context.applicationContext
     private val allowedExecutableRoots: List<File> = buildList {
         add(File("/system/bin").canonicalFile)
         add(File("/system/xbin").canonicalFile)
         add(File(appContext.applicationInfo.nativeLibraryDir).canonicalFile)
-        add(File(appContext.filesDir, "etroute/runtime-packs").canonicalFile)
     }
+    private val allowedRuntimePackExecutables: Set<File> =
+        allowedRuntimePackExecutables.map { it.canonicalFile }.toSet()
 
     fun validate(launch: PreparedLaunch): PreparedLaunch {
         require(launch.sessionId == session.sessionId) { "PreparedLaunch session mismatch" }
@@ -73,8 +75,11 @@ class PreparedLaunchValidator(
         val executable = File(launch.executable).canonicalFile
         require(executable.isFile) { "Executable does not exist: ${executable.path}" }
         require(executable.canExecute()) { "Executable is not executable: ${executable.path}" }
-        require(allowedExecutableRoots.any { isWithin(executable, it) }) {
-            "Executable is outside approved ETroute/system roots: ${executable.path}"
+        require(
+            allowedExecutableRoots.any { isWithin(executable, it) } ||
+                executable in allowedRuntimePackExecutables
+        ) {
+            "Executable is outside approved ETroute/system roots or admitted RuntimePack tools: ${executable.path}"
         }
 
         val cwd = File(launch.workingDirectory).canonicalFile
@@ -116,7 +121,8 @@ class PreparedLaunchValidator(
 data class EtRouteSessionRun(
     val paths: RuntimeSessionPaths,
     val launch: PreparedLaunch,
-    val result: NativeRunResult
+    val result: NativeRunResult,
+    val report: RunReport
 )
 
 /** Kotlin orchestration directly above the frozen JNI supervisor boundary. */
@@ -126,21 +132,89 @@ class EtRouteSessionRunner(
 ) {
     private val appContext = context.applicationContext
     private val workspaces = EtRouteWorkspaceManager(appContext)
+    private val journalStore =
+        SessionJournalStore(File(appContext.filesDir, "etroute/sessions"))
 
-    fun run(launch: PreparedLaunch): EtRouteSessionRun {
+    fun run(
+        launch: PreparedLaunch,
+        admittedExecutable: ResolvedTool? = null,
+        reportTool: ResolvedTool? = admittedExecutable
+    ): EtRouteSessionRun {
         val paths = workspaces.create(launch.sessionId)
-        val prepared = PreparedLaunchValidator(appContext, paths).validate(launch)
+        val journal = journalStore.journalFor(launch.sessionId)
+        journal.initialize(launch.sessionId)
 
-        val result = supervisor.run(prepared)
+        val allowedRuntimeExecutables = admittedExecutable
+            ?.takeIf { it.descriptor.kind == RuntimePackToolKind.NATIVE_EXECUTABLE }
+            ?.let { setOf(it.artifact) }
+            ?: emptySet()
+
+        val prepared = try {
+            PreparedLaunchValidator(
+                appContext,
+                paths,
+                allowedRuntimePackExecutables = allowedRuntimeExecutables
+            ).validate(launch)
+        } catch (t: Throwable) {
+            journal.transition(
+                sessionId = launch.sessionId,
+                next = SessionJournalState.TERMINATED,
+                requestId = launch.requestId,
+                termination = TerminationClass.SPAWN_FAILED,
+                resolvedTool = reportTool
+            )
+            throw t
+        }
+
+        journal.transition(
+            sessionId = prepared.sessionId,
+            next = SessionJournalState.PREPARED,
+            requestId = prepared.requestId,
+            resolvedTool = reportTool
+        )
+        journal.transition(
+            sessionId = prepared.sessionId,
+            next = SessionJournalState.RUNNING,
+            requestId = prepared.requestId,
+            resolvedTool = reportTool
+        )
+
+        val result = try {
+            supervisor.run(prepared)
+        } catch (t: Throwable) {
+            journal.transition(
+                sessionId = prepared.sessionId,
+                next = SessionJournalState.TERMINATED,
+                requestId = prepared.requestId,
+                termination = TerminationClass.UNKNOWN,
+                resolvedTool = reportTool
+            )
+            throw t
+        }
+
+        val report = RunReport.from(
+            launch = prepared,
+            result = result,
+            resolvedTool = reportTool
+        )
+
+        journal.transition(
+            sessionId = prepared.sessionId,
+            next = SessionJournalState.TERMINATED,
+            requestId = prepared.requestId,
+            termination = report.termination,
+            resolvedTool = reportTool
+        )
+
         Log.i(
             LOG_TAG,
             "session=${prepared.sessionId} request=${prepared.requestId} " +
                 "origin=${prepared.originTag} stage=${result.stage} errno=${result.spawnErrno} " +
                 "exit=${result.exitCode} signal=${result.signal} timeout=${result.timedOut} " +
-                "durationMs=${result.durationMs}"
+                "termination=${report.termination} durationMs=${result.durationMs}"
         )
 
-        return EtRouteSessionRun(paths, prepared, result)
+        return EtRouteSessionRun(paths, prepared, result, report)
     }
 
     /** Deterministic device smoke which exercises JNI without depending on RuntimePack Python. */
