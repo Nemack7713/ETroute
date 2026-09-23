@@ -71,6 +71,7 @@ class ApktoolCandidateTests(unittest.TestCase):
             sha256="b" * 64,
             size=100,
             java_pack_id="org.etroute.java",
+            aapt2_pack_id="org.etroute.aapt2",
         )
 
         self.assertEqual(manifest["packId"], "org.etroute.apktool")
@@ -82,6 +83,13 @@ class ApktoolCandidateTests(unittest.TestCase):
         )
         self.assertIsNone(
             manifest["dependencies"][0]["requiredGenerationId"]
+        )
+        self.assertEqual(
+            manifest["dependencies"][1]["packId"],
+            "org.etroute.aapt2",
+        )
+        self.assertIsNone(
+            manifest["dependencies"][1]["requiredGenerationId"]
         )
 
     def test_download_verification_rejects_digest_mismatch_without_publish(self):
