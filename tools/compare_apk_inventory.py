@@ -418,13 +418,18 @@ def build_alerts(
 def _section_changed(section: dict[str, Any]) -> bool:
     if "changed" in section and isinstance(section["changed"], bool):
         return section["changed"]
-    if section.get("added") or section.get("removed") or section.get("changed"):
-        return True
-    for value in section.values():
-        if isinstance(value, dict) and _section_changed(value):
-            return True
+
+    for key in ("added", "removed", "changed"):
+        value = section.get(key)
         if isinstance(value, list) and value:
             return True
+
+    for key, value in section.items():
+        if key in {"unchanged", "before", "after"}:
+            continue
+        if isinstance(value, dict) and _section_changed(value):
+            return True
+
     return False
 
 
