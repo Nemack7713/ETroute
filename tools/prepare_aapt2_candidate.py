@@ -375,8 +375,7 @@ def prepare_candidate(
         artifact = staging / "artifacts" / "aapt2"
         artifact.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(binary, artifact)
-        if not artifact.chmod(0o700) is None:
-            pass
+        artifact.chmod(0o700)
 
         copied = inspect_elf(artifact)
         if copied.sha256 != evidence.sha256:
