@@ -8,12 +8,14 @@ PinnedRuntimePack records must come from trusted application configuration (for 
 
 RuntimePackPlatform.fromAndroid binds API, the process's ABI, nativeLibraryDir and the app-owned runtime-pack directory. Executables and required native libraries are expected under nativeLibraryDir. Payloads are data under filesDir/etroute/runtime-packs/<pack-id>. The verifier rejects overlapping native/payload roots. A writable payload executable is not promoted to an approved executable.
 
+This first preflight implementation requires API 26 or later for bounded streaming directory enumeration. The library minSdk remains 24; API 24/25 receive UNSUPPORTED_API without attempting these file checks. The target Android 15/API 35 device is within this floor.
+
 ## Checks
 
 - Pinned identity, bounded spec fields, relative paths, SHA-256 format and supported 64-bit ABI.
 - Explicit minimum/maximum Android API and process ABI match.
 - Exact payload file inventory; unexpected files, missing files and symlinks reject.
-- SHA-256 of required native and payload files with bounded total hashing and entry count.
+- SHA-256 of required native and payload files with bounded total hashing and entry count; directory entries are streamed rather than materialized all at once.
 - ELF64 little-endian identity and machine type for every required native file.
 - Executable permission on the pinned native entry point.
 

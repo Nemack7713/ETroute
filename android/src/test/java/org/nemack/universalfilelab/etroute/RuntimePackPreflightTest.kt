@@ -63,6 +63,10 @@ class RuntimePackPreflightTest {
         val f = fixture()
         assertEquals(RuntimePackCheckReason.UNSUPPORTED_ABI, f.verifier(abi = "x86_64").verify("python-test").reason)
     }
+    @Test fun apiWithoutBoundedDirectoryEnumerationIsRejected() {
+        val f = fixture()
+        assertEquals(RuntimePackCheckReason.UNSUPPORTED_API, f.verifier(api = 25).verify("python-test").reason)
+    }
     @Test fun unsupportedApiIsRejected() {
         val f = fixture()
         assertEquals(RuntimePackCheckReason.UNSUPPORTED_API, f.verifier(api = 36).verify("python-test").reason)

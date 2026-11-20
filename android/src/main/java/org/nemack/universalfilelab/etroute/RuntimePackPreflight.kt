@@ -85,7 +85,7 @@ class RuntimePackPreflight(
         return try {
             validateSpec(packId, spec)
             if (platform.processAbi != spec.abi) reject(RuntimePackCheckReason.UNSUPPORTED_ABI)
-            if (platform.api !in spec.minApi..spec.maxApi) reject(RuntimePackCheckReason.UNSUPPORTED_API)
+            if (platform.api < 26 || platform.api !in spec.minApi..spec.maxApi) reject(RuntimePackCheckReason.UNSUPPORTED_API)
             val nativeRoot = platform.nativeLibraryDirectory.canonicalFile
             val packsRoot = platform.payloadPacksDirectory.canonicalFile
             if (!nativeRoot.isDirectory || !packsRoot.isDirectory) reject(RuntimePackCheckReason.MISSING_FILE)
@@ -156,25 +156,32 @@ class RuntimePackPreflight(
         return file
     }
 
+    @android.annotation.TargetApi(26)
     private fun inventory(root: File): Set<String> {
         val found = mutableSetOf<String>()
         val directories = ArrayDeque<Pair<File, Int>>()
         directories.add(root to 0)
         var count = 0
-        while (directories.isNotEmpty()) {
-            val (directory, depth) = directories.removeFirst()
-            val children = directory.listFiles() ?: reject(RuntimePackCheckReason.IO_FAILURE)
-            for (file in children) {
-                count++
-                if (count > maxEntries || depth >= 32) reject(RuntimePackCheckReason.LIMIT_EXCEEDED)
-                val relative = file.relativeTo(root).invariantSeparatorsPath
-                val checked = child(root, relative)
-                when {
-                    checked.isDirectory -> directories.add(checked to depth + 1)
-                    checked.isFile -> found.add(relative)
-                    else -> reject(RuntimePackCheckReason.INVALID_PATH)
+        try {
+            while (directories.isNotEmpty()) {
+                val (directory, depth) = directories.removeFirst()
+                // Stream entries rather than allocating File.listFiles() for an untrusted directory.
+                java.nio.file.Files.newDirectoryStream(directory.toPath()).use { children ->
+                    for (path in children) {
+                        count++
+                        if (count > maxEntries || depth >= 32) reject(RuntimePackCheckReason.LIMIT_EXCEEDED)
+                        val relative = path.toFile().relativeTo(root).invariantSeparatorsPath
+                        val checked = child(root, relative)
+                        when {
+                            checked.isDirectory -> directories.add(checked to depth + 1)
+                            checked.isFile -> found.add(relative)
+                            else -> reject(RuntimePackCheckReason.INVALID_PATH)
+                        }
+                    }
                 }
             }
+        } catch (error: java.nio.file.DirectoryIteratorException) {
+            throw error.cause ?: java.io.IOException("Directory iteration failed", error)
         }
         return found
     }
