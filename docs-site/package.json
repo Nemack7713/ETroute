@@ -1,0 +1,26 @@
+{
+  "name": "etroute-docs",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=20.0"
+  },
+  "scripts": {
+    "start": "docusaurus start --host 0.0.0.0",
+    "build": "docusaurus build",
+    "serve": "docusaurus serve --host 0.0.0.0",
+    "test": "node --test tests/*.test.mjs",
+    "lint": "markdownlint-cli2 'docs/**/*.md' 'docs/**/*.mdx' README.md"
+  },
+  "dependencies": {
+    "@docusaurus/core": "3.10.2",
+    "@docusaurus/preset-classic": "3.10.2",
+    "@docusaurus/theme-mermaid": "3.10.2",
+    "@mermaid-js/layout-elk": "0.1.9",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "markdownlint-cli2": "0.18.1"
+  }
+}
