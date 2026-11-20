@@ -32,6 +32,8 @@ jobs:
           gradle-version: '8.13'
           cache-disabled: true
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - name: Install Android build components
         run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0' 'cmake;3.22.1'
       - name: Build library and instrumentation tests
