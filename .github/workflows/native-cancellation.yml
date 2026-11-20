@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -31,10 +31,11 @@ jobs:
         with:
           gradle-version: '8.13'
           cache-disabled: true
+      - uses: android-actions/setup-android@v3
       - name: Install Android build components
         run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0' 'cmake;3.22.1'
       - name: Build library and instrumentation tests
-        run: bash tools/run_android_jni_validation.sh
+        run: ETROUTE_BUILD_ONLY=1 bash tools/run_android_jni_validation.sh
       - name: Build validator with Stop controls
         run: bash tools/build_device_validator.sh
       - uses: actions/upload-artifact@v5
