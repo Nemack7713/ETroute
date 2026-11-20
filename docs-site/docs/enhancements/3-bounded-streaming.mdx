@@ -1,0 +1,20 @@
+---
+title: 3. Bounded streaming output
+---
+
+**Capability status: Planned.**
+
+The validator display limit is not an end-to-end stream bound. The future stream needs independent limits on decoding, queues, retained files and UI rendering.
+
+## Required contract and acceptance
+
+| Area | Requirement |
+| --- | --- |
+| Identity | Bind every event to a session and request ID. |
+| Ordering | Use increasing sequence numbers and define replay behavior. |
+| Bounds | Specify byte, line, queue and disk limits plus overflow behavior. |
+| Acceptance | Flood stdout/stderr; confirm bounded resources and responsive Stop without losing final status. |
+
+## Dependency
+
+Start with the [RuntimePack admission contract](1-runtimepack-admission.mdx). Assign stronger evidence labels only to the exact checks that have passed.

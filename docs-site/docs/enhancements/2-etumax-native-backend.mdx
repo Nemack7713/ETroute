@@ -1,0 +1,20 @@
+---
+title: 2. ETuMAX native backend
+---
+
+**Capability status: Planned.**
+
+Require a genuine, version-bound ETroute AAR and an admitted Python worker. The current ETuMAX main build still includes Chaquopy; this page describes its migration target, not a completed migration.
+
+## Required contract and acceptance
+
+| Area | Requirement |
+| --- | --- |
+| AAR identity | Record source revision, digest, JNI capability and supported ABIs. |
+| Backend selection | Report native availability explicitly; do not silently fall back. |
+| Controller boundary | Route start, output, Stop and result events through typed session contracts. |
+| Acceptance | Prove the selected script reached NativeSupervisor and the admitted runtime on the device. |
+
+## Dependency
+
+Start with the [RuntimePack admission contract](1-runtimepack-admission.mdx). Assign stronger evidence labels only to the exact checks that have passed.

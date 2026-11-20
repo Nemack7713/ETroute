@@ -1,0 +1,20 @@
+---
+title: 5. Device acceptance suite
+---
+
+**Capability status: Planned.**
+
+Host JNI tests and APK compilation do not establish Android execution acceptance. Bind results to an exact APK digest, source revision, native ABI, Android API and device model.
+
+## Required contract and acceptance
+
+| Area | Requirement |
+| --- | --- |
+| Startup | Verify native library loading, admitted Python identity and required imports. |
+| Termination | Test Stop before launch, during startup and while running; distinguish timeout and uncertain cleanup. |
+| Lifecycle | Test rotation, backgrounding, app recreation and the chosen recovery policy. |
+| Artifacts | Preserve diagnostics and final status; clean ephemeral files only after termination is confirmed. |
+
+## Dependency
+
+Start with the [RuntimePack admission contract](1-runtimepack-admission.mdx). Assign stronger evidence labels only to the exact checks that have passed.

@@ -1,0 +1,35 @@
+---
+title: Engineering overview
+slug: /
+---
+
+**Documentation status: Planned contracts plus linked implementation evidence.**
+
+ETuMAX owns the Android interface and session control. ETroute owns native launch supervision. The target production path uses a verified Python runtime and absolute executable paths, without Chaquopy or an unverified fallback.
+
+This site is an engineering guide, not proof of runtime admission. Diagrams explain contracts; the interactive admission component only simulates decisions.
+
+## Read the roadmap
+
+1. [Verified Python RuntimePack admission](enhancements/1-runtimepack-admission.mdx)
+2. [ETuMAX native backend](enhancements/2-etumax-native-backend.mdx)
+3. [Bounded streaming output](enhancements/3-bounded-streaming.mdx)
+4. [Session recovery](enhancements/4-session-recovery.mdx)
+5. [Device acceptance](enhancements/5-device-acceptance-suite.mdx)
+
+## Evidence labels
+
+| Label | Required meaning |
+| --- | --- |
+| Planned | Implementation or acceptance is incomplete. |
+| Implemented | Source exists at the cited revision; this does not imply successful execution. |
+| Host-verified | Named checks passed on a host at the cited revision. |
+| Device-verified | Named checks passed on an identified Android device and build. |
+
+Use labels per capability, not as one global badge. An APK build is not a passing device test. A native smoke test is not evidence that Python started.
+
+## Current reference point
+
+[Cancellation integration PR #6](https://github.com/Nemack7713/ETroute/pull/6) and its [source revision](https://github.com/Nemack7713/ETroute/tree/65110be6e3e5c7ef449060821285f35dba58b987) provide the cancellation foundation. Its [CI run](https://github.com/Nemack7713/ETroute/actions/runs/44827287835) passed host native/JNI/Python checks and Android builds. Instrumentation tests were compiled, not executed by that build-only job.
+
+Existing source documentation stays in place: [project README](https://github.com/Nemack7713/ETroute/blob/8a393bc5b8d0048273ddd2784c23e696506371a5/README.txt) and [JNI validation guide](https://github.com/Nemack7713/ETroute/blob/8a393bc5b8d0048273ddd2784c23e696506371a5/docs/JNI_ANDROID_VALIDATION.md).

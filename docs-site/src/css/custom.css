@@ -1,0 +1,8 @@
+:root { --ifm-color-primary: #176a78; }
+[data-theme='dark'] { --ifm-color-primary: #64d7da; }
+.admissionSimulator { padding: 1.25rem; margin: 1.5rem 0; border: 1px solid var(--ifm-color-emphasis-300); border-radius: 0.6rem; }
+.admissionSimulator fieldset { border: 0; padding: 0; margin: 0; }
+.admissionCheck { display: flex; gap: 0.8rem; align-items: flex-start; padding: 0.65rem 0; cursor: pointer; }
+.admissionCheck input { margin-top: 0.3rem; width: 1.15rem; height: 1.15rem; flex-shrink: 0; }
+.admissionCheck small { display: block; color: var(--ifm-color-emphasis-700); }
+.admissionSimulator button:focus-visible, .admissionCheck input:focus-visible { outline: 3px solid var(--ifm-color-primary); outline-offset: 3px; }
