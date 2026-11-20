@@ -273,3 +273,102 @@ Java_org_nemack_universalfilelab_etroute_JniNativeSupervisor_nativeRun(
         return nullptr;
     }
 }
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_org_nemack_universalfilelab_etroute_JniNativeSupervisor_nativeCancellationVersion(JNIEnv*, jobject) noexcept { return 1; }
+
+extern "C"
+JNIEXPORT jlongArray JNICALL
+Java_org_nemack_universalfilelab_etroute_JniNativeSupervisor_nativeRunCancellable(
+    JNIEnv* env,
+    jobject,
+    jstring executable_value,
+    jobjectArray argv_value,
+    jobjectArray envp_value,
+    jstring cwd_value,
+    jstring stdout_value,
+    jstring stderr_value,
+    jlong timeout_ms,
+    jlong terminate_grace_ms,
+    jlong cpu_seconds,
+    jlong max_open_files,
+    jlong max_file_bytes,
+    jlong max_address_space_bytes,
+    jobject cancellation
+) noexcept {
+    try {
+        if (env == nullptr) return nullptr;
+        if (executable_value == nullptr || argv_value == nullptr || envp_value == nullptr ||
+            cwd_value == nullptr || stdout_value == nullptr || stderr_value == nullptr) {
+            throw_illegal_argument(env, "ETroute JNI arguments must not be null");
+            return nullptr;
+        }
+        if (!validate_scalar_arguments(
+                env,
+                timeout_ms,
+                terminate_grace_ms,
+                cpu_seconds,
+                max_open_files,
+                max_file_bytes,
+                max_address_space_bytes)) {
+            return nullptr;
+        }
+
+        std::string executable;
+        std::string cwd;
+        std::string stdout_path;
+        std::string stderr_path;
+        std::vector<std::string> argv;
+        std::vector<std::string> envp;
+
+        if (!to_string(env, executable_value, executable) ||
+            !to_strings(env, argv_value, argv) ||
+            !to_strings(env, envp_value, envp) ||
+            !to_string(env, cwd_value, cwd) ||
+            !to_string(env, stdout_value, stdout_path) ||
+            !to_string(env, stderr_value, stderr_path)) {
+            return nullptr;
+        }
+        if (env->ExceptionCheck()) return nullptr;
+
+        etroute::PreparedProcess process{
+            .executable = std::move(executable),
+            .argv = std::move(argv),
+            .envp = std::move(envp),
+            .working_directory = std::move(cwd),
+            .stdout_path = std::move(stdout_path),
+            .stderr_path = std::move(stderr_path),
+            .timeout_ms = static_cast<std::int64_t>(timeout_ms),
+            .terminate_grace_ms = static_cast<std::int64_t>(terminate_grace_ms),
+            .limits = etroute::NativeResourceLimits{
+                .cpu_seconds = static_cast<std::uint64_t>(cpu_seconds),
+                .max_open_files = static_cast<std::uint64_t>(max_open_files),
+                .max_file_bytes = static_cast<std::uint64_t>(max_file_bytes),
+                .max_address_space_bytes = static_cast<std::uint64_t>(max_address_space_bytes),
+            },
+        };
+
+        if (cancellation == nullptr) {
+            throw_illegal_argument(env, "Cancellation token is required");
+            return nullptr;
+        }
+        jclass token_class = env->GetObjectClass(cancellation);
+        if (token_class == nullptr) return nullptr;
+        jmethodID get = env->GetMethodID(token_class, "get", "()Z");
+        env->DeleteLocalRef(token_class);
+        if (get == nullptr) return nullptr;
+        const etroute::NativeRunResult result = etroute::run_process(process, [&]() {
+            return env->CallBooleanMethod(cancellation, get) == JNI_TRUE;
+        });
+        return pack_result(env, result);
+    } catch (const std::bad_alloc&) {
+        throw_java_exception(env, "java/lang/OutOfMemoryError", "ETroute native allocation failed");
+        return nullptr;
+    } catch (const std::exception& error) {
+        throw_java_exception(env, "java/lang/RuntimeException", error.what());
+        return nullptr;
+    } catch (...) {
+        throw_java_exception(env, "java/lang/Error", "Unknown ETroute native exception");
+        return nullptr;
+    }
+}

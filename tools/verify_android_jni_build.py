@@ -31,6 +31,8 @@ EXPECTED_MACHINE = {
 REQUIRED_SYMBOLS = (
     "Java_org_nemack_universalfilelab_etroute_JniNativeSupervisor_nativeAbiVersion",
     "Java_org_nemack_universalfilelab_etroute_JniNativeSupervisor_nativeRun",
+    "Java_org_nemack_universalfilelab_etroute_JniNativeSupervisor_nativeRunCancellable",
+    "Java_org_nemack_universalfilelab_etroute_JniNativeSupervisor_nativeCancellationVersion",
 )
 
 

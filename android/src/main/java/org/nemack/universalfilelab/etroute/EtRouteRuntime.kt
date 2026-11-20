@@ -127,11 +127,16 @@ class EtRouteSessionRunner(
     private val appContext = context.applicationContext
     private val workspaces = EtRouteWorkspaceManager(appContext)
 
-    fun run(launch: PreparedLaunch): EtRouteSessionRun {
+    fun run(
+        launch: PreparedLaunch,
+        onPrepared: ((JniNativeSupervisor.Request) -> Unit)? = null
+    ): EtRouteSessionRun {
         val paths = workspaces.create(launch.sessionId)
         val prepared = PreparedLaunchValidator(appContext, paths).validate(launch)
 
-        val result = supervisor.run(prepared)
+        val request = supervisor.prepare(prepared)
+        onPrepared?.invoke(request)
+        val result = request.run()
         Log.i(
             LOG_TAG,
             "session=${prepared.sessionId} request=${prepared.requestId} " +
@@ -146,7 +151,8 @@ class EtRouteSessionRunner(
     /** Deterministic device smoke which exercises JNI without depending on RuntimePack Python. */
     fun runSystemSmoke(
         sessionId: String = "smoke-${UUID.randomUUID()}",
-        timeoutMs: Long = 10_000
+        timeoutMs: Long = 10_000,
+        onPrepared: ((JniNativeSupervisor.Request) -> Unit)? = null
     ): EtRouteSessionRun {
         val paths = workspaces.create(sessionId)
         val stdout = File(paths.diagnostics, "stdout.log")
@@ -179,7 +185,7 @@ class EtRouteSessionRunner(
             originTag = "EtRouteSessionRunner:system-smoke"
         )
 
-        return run(launch)
+        return run(launch, onPrepared)
     }
 
     companion object {

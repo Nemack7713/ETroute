@@ -3,6 +3,7 @@
 #include <cerrno>
 #include <chrono>
 #include <fcntl.h>
+#include <poll.h>
 #include <signal.h>
 #include <sys/resource.h>
 #include <sys/types.h>
@@ -236,6 +237,12 @@ void terminate_process_group(
 }  // namespace
 
 NativeRunResult run_process(const PreparedProcess& process) noexcept {
+    return run_process(process, {});
+}
+
+NativeRunResult run_process(
+    const PreparedProcess& process, const std::function<bool()>& cancelled
+) noexcept {
     NativeRunResult result{};
     const auto started = Clock::now();
 
@@ -249,6 +256,12 @@ NativeRunResult run_process(const PreparedProcess& process) noexcept {
         process.terminate_grace_ms < 0) {
         result.stage = SpawnStage::InvalidArgument;
         result.spawn_errno = EINVAL;
+        result.duration_ms = elapsed_ms(started);
+        return result;
+    }
+
+    if (cancelled && cancelled()) {
+        result.stage = SpawnStage::Cancelled;
         result.duration_ms = elapsed_ms(started);
         return result;
     }
@@ -345,6 +358,35 @@ NativeRunResult run_process(const PreparedProcess& process) noexcept {
 
     (void)::setpgid(pid, pid);
 
+    // Cover pre-exec setup too: do not block indefinitely reading the error pipe.
+    while (true) {
+        const bool stop = cancelled && cancelled();
+        if (stop || elapsed_ms(started) >= process.timeout_ms) {
+            result.stage = stop ? SpawnStage::Cancelled : SpawnStage::TimeoutKill;
+            result.timed_out = !stop;
+            int status = 0;
+            bool valid = false;
+            int wait_error = 0;
+            terminate_process_group(pid, process.terminate_grace_ms, status, valid, wait_error);
+            ::close(error_pipe[0]);
+            const auto cleanup_started = Clock::now();
+            while (process_group_exists(pid) && elapsed_ms(cleanup_started) < 500) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+            if (wait_error != 0 || !valid || process_group_exists(pid)) {
+                result.stage = SpawnStage::CleanupUnconfirmed;
+                result.spawn_errno = wait_error != 0 ? wait_error : EBUSY;
+            }
+            decode_wait_status(result, status, valid);
+            result.duration_ms = elapsed_ms(started);
+            return result;
+        }
+        pollfd descriptor{error_pipe[0], POLLIN, 0};
+        const int ready = ::poll(&descriptor, 1, 10);
+        if (ready > 0) break;
+        if (ready < 0 && errno != EINTR) break;
+    }
+
     ChildFailure failure{};
     int pipe_error = 0;
     const auto pipe_state = read_child_failure(error_pipe[0], failure, pipe_error);
@@ -419,9 +461,10 @@ NativeRunResult run_process(const PreparedProcess& process) noexcept {
             break;
         }
 
-        if (elapsed_ms(started) >= process.timeout_ms) {
-            result.timed_out = true;
-            result.stage = SpawnStage::TimeoutKill;
+        const bool stop = cancelled && cancelled();
+        if (stop || elapsed_ms(started) >= process.timeout_ms) {
+            result.timed_out = !stop;
+            result.stage = stop ? SpawnStage::Cancelled : SpawnStage::TimeoutKill;
 
             int wait_error = 0;
             terminate_process_group(
@@ -432,6 +475,14 @@ NativeRunResult run_process(const PreparedProcess& process) noexcept {
                 wait_error
             );
 
+            const auto cleanup_started = Clock::now();
+            while (process_group_exists(pid) && elapsed_ms(cleanup_started) < 500) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+            if (!status_valid || process_group_exists(pid)) {
+                result.stage = SpawnStage::CleanupUnconfirmed;
+                result.spawn_errno = EBUSY;
+            }
             if (wait_error != 0 && result.spawn_errno == 0) {
                 result.spawn_errno = wait_error;
             }
