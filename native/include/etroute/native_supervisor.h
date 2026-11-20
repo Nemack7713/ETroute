@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -21,6 +22,8 @@ enum class SpawnStage : int {
     Execve = 11,
     Waitpid = 12,
     TimeoutKill = 13,
+    Cancelled = 14,
+    CleanupUnconfirmed = 15,
 };
 
 struct NativeResourceLimits {
@@ -60,5 +63,9 @@ struct NativeRunResult {
 };
 
 [[nodiscard]] NativeRunResult run_process(const PreparedProcess& process) noexcept;
+// Parent-thread callback only. It must not throw or block.
+[[nodiscard]] NativeRunResult run_process(
+    const PreparedProcess& process, const std::function<bool()>& cancelled
+) noexcept;
 
 }  // namespace etroute

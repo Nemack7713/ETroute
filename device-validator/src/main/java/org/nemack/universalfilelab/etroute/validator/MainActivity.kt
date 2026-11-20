@@ -8,6 +8,10 @@ import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
+import android.view.inputmethod.InputMethodManager
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.CancellationException
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -29,6 +33,41 @@ class MainActivity : Activity() {
     private lateinit var runButton: Button
     private lateinit var copyButton: Button
     private var latestReport: String = ""
+    private lateinit var stopButton: Button
+    private val stopRequested = AtomicBoolean(false)
+    private val activeRequest = AtomicReference<JniNativeSupervisor.Request?>(null)
+    @Volatile private var disposed = false
+    private val displayLines = ArrayDeque<String>()
+
+    private fun showLine(line: String) {
+        runOnUiThread {
+            if (!disposed) {
+                displayLines.addLast(line.take(4096))
+                while (displayLines.size > 200) displayLines.removeFirst()
+                status.text = displayLines.joinToString("\n")
+            }
+        }
+    }
+
+    private fun registerRequest(request: JniNativeSupervisor.Request) {
+        activeRequest.set(request)
+        if (stopRequested.get()) request.cancel()
+    }
+
+    private fun runNative(supervisor: JniNativeSupervisor, launch: PreparedLaunch): org.nemack.universalfilelab.etroute.NativeRunResult {
+        val request = supervisor.prepare(launch)
+        registerRequest(request)
+        try { return request.run() }
+        finally { activeRequest.compareAndSet(request, null) }
+    }
+
+    override fun onDestroy() {
+        disposed = true
+        stopRequested.set(true)
+        activeRequest.get()?.cancel()
+        super.onDestroy()
+    }
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -75,17 +114,64 @@ class MainActivity : Activity() {
             setPadding(0, dp(16), 0, dp(16))
         }
 
+        stopButton = Button(this).apply {
+            text = "STOP"
+            isEnabled = false
+            setOnClickListener {
+                stopRequested.set(true)
+                activeRequest.get()?.cancel()
+                text = "STOPPING…"
+                isEnabled = false
+                (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager)
+                    .hideSoftInputFromWindow(windowToken, 0)
+            }
+        }
+        val clearButton = Button(this).apply {
+            text = "CLEAR DISPLAY"
+            setOnClickListener { displayLines.clear(); status.text = "" }
+        }
+
         content.addView(title)
         content.addView(subtitle)
-        content.addView(runButton)
-        content.addView(copyButton)
-        content.addView(status)
+        val executionActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        executionActions.addView(runButton, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        executionActions.addView(stopButton, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        content.addView(executionActions)
+        val reportActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        reportActions.addView(copyButton, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        reportActions.addView(clearButton, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        content.addView(reportActions)
+        val outputScroll = ScrollView(this).apply { addView(status) }
+        content.addView(outputScroll, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+        ))
 
-        val scroll = ScrollView(this).apply { addView(content) }
-        setContentView(scroll)
+        // Controls stay outside the independently scrolling output.
+        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        content.setOnApplyWindowInsetsListener { view, insets ->
+            // Exclude IME here: adjustResize already handles the keyboard.
+            if (Build.VERSION.SDK_INT >= 30) {
+                val bars = insets.getInsets(android.view.WindowInsets.Type.systemBars() or
+                    android.view.WindowInsets.Type.displayCutout())
+                view.setPadding(dp(18) + bars.left, dp(18) + bars.top,
+                    dp(18) + bars.right, dp(18) + bars.bottom)
+            } else {
+                view.setPadding(dp(18) + insets.stableInsetLeft,
+                    dp(18) + insets.stableInsetTop,
+                    dp(18) + insets.stableInsetRight,
+                    dp(18) + insets.stableInsetBottom)
+            }
+            insets
+        }
+        setContentView(content)
+        content.requestApplyInsets()
     }
 
     private fun runValidation() {
+        stopRequested.set(false)
+        displayLines.clear()
+        stopButton.text = "STOP"
+        stopButton.isEnabled = true
         runButton.isEnabled = false
         copyButton.isEnabled = false
         status.text = "Running ETroute physical-device validation…"
@@ -93,6 +179,8 @@ class MainActivity : Activity() {
         Thread {
             val report = try {
                 runSuite()
+            } catch (_: CancellationException) {
+                "ETROUTE_DEVICE_VALIDATION=CANCELLED\nDiagnostics retained; validation did not complete."
             } catch (error: Throwable) {
                 buildString {
                     appendLine("ETROUTE_DEVICE_VALIDATION=FAILED")
@@ -103,11 +191,17 @@ class MainActivity : Activity() {
                 }
             }
 
+            activeRequest.set(null)
             latestReport = report
             persistReport(report)
 
             runOnUiThread {
-                status.text = report
+                if (disposed) return@runOnUiThread
+                displayLines.clear()
+                report.lineSequence().take(200).forEach { displayLines.addLast(it.take(4096)) }
+                status.text = displayLines.joinToString("\n")
+                stopButton.isEnabled = false
+                stopButton.text = "STOP"
                 runButton.isEnabled = true
                 copyButton.isEnabled = true
             }
@@ -117,15 +211,21 @@ class MainActivity : Activity() {
     private fun runSuite(): String {
         val lines = mutableListOf<String>()
         var failures = 0
+        var cleanupUnconfirmed = false
 
         fun step(name: String, block: () -> String) {
+            if (stopRequested.get()) throw CancellationException("Validation stopped")
+            showLine("[RUNNING] $name")
             try {
                 val detail = block()
                 lines += "[PASS] $name${if (detail.isBlank()) "" else " — $detail"}"
             } catch (error: Throwable) {
+                if (stopRequested.get()) throw CancellationException("Validation stopped")
                 failures += 1
                 lines += "[FAIL] $name — ${error::class.java.simpleName}: ${error.message}"
             }
+            if (stopRequested.get()) throw CancellationException("Validation stopped")
+            showLine(lines.last())
         }
 
         val memory = memoryPolicy()
@@ -160,8 +260,9 @@ class MainActivity : Activity() {
 
         var smokeSessionRoot: File? = null
         step("NativeSupervisor success round-trip") {
-            val run = EtRouteSessionRunner(applicationContext, supervisor).runSystemSmoke(timeoutMs = 15_000)
+            val run = EtRouteSessionRunner(applicationContext, supervisor).runSystemSmoke(timeoutMs = 15_000, onPrepared = ::registerRequest)
             smokeSessionRoot = run.paths.root
+            cleanupUnconfirmed = run.result.stage == NativeSpawnStage.CLEANUP_UNCONFIRMED
             val stderr = readDiagnostic(File(run.paths.diagnostics, "stderr.log"))
             check(run.result.succeeded) {
                 "result=${run.result} stderr=${stderr.ifBlank { "<empty>" }}"
@@ -189,7 +290,7 @@ class MainActivity : Activity() {
         step("EXECVE failure preserves stage/errno") {
             val paths = workspaceManager.create("execfail-${UUID.randomUUID()}")
             try {
-                val result = supervisor.run(
+                val result = runNative(supervisor,
                     launch(
                         paths = paths,
                         executable = "/system/bin/etroute-does-not-exist",
@@ -198,18 +299,19 @@ class MainActivity : Activity() {
                         origin = "device-validator:exec-failure"
                     )
                 )
+                cleanupUnconfirmed = result.stage == NativeSpawnStage.CLEANUP_UNCONFIRMED
                 check(result.stage == NativeSpawnStage.EXECVE) { "stage=${result.stage}" }
                 check(result.spawnErrno != 0) { "errno was not preserved" }
                 "stage=${result.stage} errno=${result.spawnErrno} exit=${result.exitCode}"
             } finally {
-                finalizer.finalize(SessionFinalizationRequest(paths, preserveOutput = false))
+                if (!stopRequested.get() && !cleanupUnconfirmed) finalizer.finalize(SessionFinalizationRequest(paths, preserveOutput = false))
             }
         }
 
         step("Timeout kills process group") {
             val paths = workspaceManager.create("timeout-${UUID.randomUUID()}")
             try {
-                val result = supervisor.run(
+                val result = runNative(supervisor,
                     launch(
                         paths = paths,
                         executable = "/system/bin/sh",
@@ -219,12 +321,13 @@ class MainActivity : Activity() {
                         origin = "device-validator:timeout"
                     )
                 )
+                cleanupUnconfirmed = result.stage == NativeSpawnStage.CLEANUP_UNCONFIRMED
                 val stderr = readDiagnostic(File(paths.diagnostics, "stderr.log"))
                 check(result.timedOut) { "timedOut=false result=$result stderr=${stderr.ifBlank { "<empty>" }}" }
                 check(result.stage == NativeSpawnStage.TIMEOUT_KILL) { "stage=${result.stage} stderr=$stderr" }
                 "stage=${result.stage} signal=${result.signal} durationMs=${result.durationMs}"
             } finally {
-                finalizer.finalize(
+                if (!stopRequested.get() && !cleanupUnconfirmed) finalizer.finalize(
                     SessionFinalizationRequest(
                         paths = paths,
                         preserveOutput = false,
@@ -252,7 +355,7 @@ class MainActivity : Activity() {
                 check(rejected) { "workspace escape unexpectedly passed validation" }
                 "rejected=true"
             } finally {
-                finalizer.finalize(SessionFinalizationRequest(paths, preserveOutput = false))
+                if (!stopRequested.get() && !cleanupUnconfirmed) finalizer.finalize(SessionFinalizationRequest(paths, preserveOutput = false))
             }
         }
 
@@ -267,6 +370,7 @@ class MainActivity : Activity() {
             if (memory.advisoryBytes == 0L) "uncapped telemetry" else "${memory.advisoryBytes / MIB} MiB telemetry only"
         }
 
+        if (stopRequested.get()) throw CancellationException("Validation stopped")
         lines += ""
         lines += "smokeSessionRoot=${smokeSessionRoot?.path ?: "n/a"}"
         lines += "reportPath=${reportFile().path}"

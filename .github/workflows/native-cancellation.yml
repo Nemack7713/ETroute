@@ -1,0 +1,44 @@
+name: Native cancellation and JNI host checks
+on:
+  pull_request:
+  push:
+    branches: [main, upgrade/cancellation-terminal-integration]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Native regression and JNI token crossing
+        run: bash tools/check_native_host.sh --jni
+      - name: Python regression
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+  android-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+          cache-disabled: true
+      - name: Install Android build components
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0' 'cmake;3.22.1'
+      - name: Build library and instrumentation tests
+        run: bash tools/run_android_jni_validation.sh
+      - name: Build validator with Stop controls
+        run: bash tools/build_device_validator.sh
+      - uses: actions/upload-artifact@v5
+        with:
+          name: ETroute-cancellation-validator
+          path: dist/ETroute-Device-Validator-debug.apk
+          if-no-files-found: error
