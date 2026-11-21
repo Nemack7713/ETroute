@@ -1,0 +1,20 @@
+---
+title: 4. Session recovery
+---
+
+**Capability status: Planned.**
+
+Define the owner of execution independently from the visible screen. Current validator Activity destruction requests cancellation; it does not implement durable background-session recovery.
+
+## Required contract and acceptance
+
+| Area | Requirement |
+| --- | --- |
+| Lifecycle policy | Specify whether backgrounding, recreation or service death stops or retains execution. |
+| Reconciliation | Report unknown state explicitly; do not display Running from stale UI memory. |
+| Request identity | Prevent a stale Stop handle or replay from affecting a later request. |
+| Acceptance | Exercise recreation, reconnect, process death and restart with attributable evidence. |
+
+## Dependency
+
+Start with the [RuntimePack admission contract](1-runtimepack-admission.mdx). Assign stronger evidence labels only to the exact checks that have passed.

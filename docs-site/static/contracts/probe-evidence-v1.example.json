@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "probeStage": "authorized-execution",
+  "requestId": "example-request",
+  "authorization": {
+    "capabilityId": "example-capability",
+    "nonce": "example-nonce",
+    "scopeSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "state": "consumed"
+  },
+  "binding": {
+    "inspectionSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "inventorySha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "probeScriptSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "appBuildIdentity": "example-build",
+    "processAbi": "arm64-v8a",
+    "api": 35
+  },
+  "execution": {
+    "result": "completed",
+    "durationMs": 1200,
+    "retainedOutputBytes": 4096,
+    "droppedOutputBytes": 0,
+    "wallTimeLimitMs": 5000,
+    "outputLimitBytes": 8192,
+    "exitCode": 0,
+    "signal": null,
+    "nativeStage": null
+  },
+  "evidence": {
+    "payloadSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "payloadRef": null
+  },
+  "cleanup": {
+    "termination": "confirmed",
+    "artifacts": "removed"
+  },
+  "userScriptLaunchAuthorized": false,
+  "timestamp": "2026-11-21T00:00:00Z",
+  "attestation": "unsigned"
+}

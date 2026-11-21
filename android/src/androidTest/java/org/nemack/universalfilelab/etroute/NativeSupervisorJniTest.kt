@@ -50,6 +50,63 @@ class NativeSupervisorJniTest {
     }
 
     @Test
+    fun cancelledBeforeLaunchDoesNotExecuteAndRequestIsSingleUse() {
+        val id = UUID.randomUUID().toString()
+        val marker = File(context.cacheDir, "$id-marker")
+        val launch = PreparedLaunch(
+            executable = "/system/bin/sh",
+            arguments = listOf("-c", "touch '${marker.path}'"),
+            environment = emptyMap(),
+            workingDirectory = context.cacheDir.path,
+            stdoutPath = File(context.cacheDir, "$id-out").path,
+            stderrPath = File(context.cacheDir, "$id-err").path,
+            sessionId = "cancel-$id", requestId = id, originTag = "androidTest:cancel"
+        )
+        val request = supervisor.prepare(launch)
+        request.cancel()
+        request.cancel()
+        val result = request.run()
+        assertEquals(NativeSpawnStage.CANCELLED, result.stage)
+        assertFalse(result.timedOut)
+        assertFalse(marker.exists())
+        assertTrue(runCatching { request.run() }.isFailure)
+    }
+
+    @Test
+    fun runningRequestCanBeCancelledThroughJni() {
+        val id = UUID.randomUUID().toString()
+        val stdout = File(context.cacheDir, "$id-out")
+        val launch = PreparedLaunch(
+            executable = "/system/bin/sh",
+            arguments = listOf("-c", "trap '' TERM; echo READY; while :; do :; done"),
+            environment = emptyMap(), workingDirectory = context.cacheDir.path,
+            stdoutPath = stdout.path, stderrPath = File(context.cacheDir, "$id-err").path,
+            timeoutMs = 5000, terminateGraceMs = 30,
+            sessionId = "cancel-$id", requestId = id, originTag = "androidTest:cancel-running"
+        )
+        val request = supervisor.prepare(launch)
+        val result = java.util.concurrent.atomic.AtomicReference<NativeRunResult?>(null)
+        val failure = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
+        val thread = Thread {
+            try { result.set(request.run()) } catch (error: Throwable) { failure.set(error) }
+        }
+        thread.start()
+        var ready = false
+        try {
+            val deadline = android.os.SystemClock.elapsedRealtime() + 2000
+            while (android.os.SystemClock.elapsedRealtime() < deadline && thread.isAlive) {
+                if (stdout.isFile && "READY" in stdout.readText()) { ready = true; break }
+                Thread.sleep(10)
+            }
+        } finally { request.cancel(); thread.join(7000) }
+        assertFalse("JNI worker did not return", thread.isAlive)
+        failure.get()?.let { throw AssertionError("JNI cancellation failed", it) }
+        assertTrue("Child never signalled readiness", ready)
+        assertEquals(NativeSpawnStage.CANCELLED, result.get()?.stage)
+        assertFalse(result.get()!!.timedOut)
+    }
+
+    @Test
     fun abiV1Negotiates() {
         assertEquals(1L, supervisor.abiVersionForValidation())
     }
