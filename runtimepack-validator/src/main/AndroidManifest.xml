@@ -1,8 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application android:label="ETroute Probe Evidence" android:extractNativeLibs="true" android:allowBackup="false" android:theme="@android:style/Theme.Material.NoActionBar">
+    <application android:label="ETroute Receipt Loss Check" android:extractNativeLibs="true" android:allowBackup="false" android:theme="@android:style/Theme.Material.NoActionBar">
         <activity android:name=".EvidenceActivity" android:exported="false" />
         <activity android:name=".MainActivity" android:exported="false" />
-        <activity android:name=".AcceptanceActivity" android:exported="true">
+        <activity android:name=".AcceptanceActivity" android:exported="false" />
+        <activity android:name=".UncertaintyActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

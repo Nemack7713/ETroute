@@ -1,0 +1,44 @@
+---
+title: Receipt-loss retention acceptance
+sidebar_position: 14
+---
+
+import Mermaid from '@theme/Mermaid';
+
+## Scope and evidence
+
+The user-reported API 35 results now pass ST08 completion (335 ms) and lifecycle cancellation (924 ms). Both reached the coordinator and semantic validator, retained diagnostics and rejected replay. These unsigned observations do not enable general scripts.
+
+This next check is **ST06 simulated receipt loss**, not a genuine native termination failure. It runs the existing fixed probe normally, confirms that the native call actually completed successfully, then deliberately withholds its completion receipt from the owner. No child is intentionally orphaned. The actual native result is retained separately and labelled as such. Genuine device `CLEANUP_UNCONFIRMED` coverage remains open.
+
+<Mermaid value={`flowchart TD
+  A[Real fixed probe completes] --> B[Retain actual native result]
+  B --> C[Simulate lost owner receipt]
+  C --> D{Owner has confirmation?}
+  D -->|No| E[Retain state and block retry]
+  E --> F[Reopen and verify hashes]
+`} />
+
+## Contract
+
+- Only a debuggable application can invoke the receipt-loss entry point. Normal ST08 execution still delivers the real receipt.
+- Preflight, explicit fixed-scope approval, one-use consumption and native resource limits remain in effect.
+- Without the owner receipt, the outer envelope records `result=unknown`, `termination=unconfirmed`, null exit/signal/stage and `artifacts=retained`. Native execution duration and bounded captured bytes remain actual measurements.
+- The envelope is schema-valid unsuccessful evidence, never successful execution or runtime admission. The report explicitly states `simulation=receipt-loss`, `actualNativeTerminationConfirmed=true`, and `actualNativeUncertaintyTested=false`.
+- The persistent uncertainty marker stays set. A new session attempt must reject before approval, preflight or native dispatch; the diagnostic attempt count must not increase.
+- No execution files are deleted. Five bounded diagnostic files are hashed: stdout, stderr, outer envelope, exact payload and the separately retained actual native result. Reopening verifies their contents are unchanged and the uncertainty marker remains set.
+- No reset, automatic recovery, replay refund or restart is provided. General execution remains disabled.
+
+The dedicated **ETroute Receipt Loss Check** APK has its own application ID and launcher, preserving prior acceptance results. It cannot enter the older probe screens through the launcher. Each run is single-use; the uncertainty block intentionally disables another run. The existing eight-session ceiling and 4 KiB stream/16 KiB envelope/24,000-byte report bounds remain in force. Receipt-loss metadata is capped at 4 KiB; each hashed diagnostic is checked against a 16 KiB bound before reading.
+
+## Phone procedure
+
+1. Install and open **ETroute Receipt Loss Check**.
+2. Tap **RUN SIMULATED RECEIPT LOSS** and save the report. Expect `ST06_SIMULATED_RECEIPT_LOSS=PASS`, `successfulProbe=false`, `retainSession=true`, `uncertainMarker=true`, `retryBlockedBeforeApproval=true`, and `actualNativeUncertaintyTested=false`.
+3. Close and reopen the app. Tap **VERIFY RETENTION AFTER REOPEN**. Expect `ST06_REOPEN_RETENTION=PASS`, `retainedFilesUnchanged=true`, `cleanupPerformed=false`, and `generalScriptExecutionEnabled=false`. The run button must stay disabled.
+
+This validates owner-side uncertainty handling on a device. It does not demonstrate a kernel cleanup failure or test process death. Full device acceptance, genuine native uncertainty, reconciliation/recovery and ETuMAX integration remain separate gates.
+
+## Verification
+
+JVM tests cover delivered and missing receipts, actual native uncertainty despite an exit code, and semantic validation of an unknown retained observation. One instrumentation test runs the real fixed probe, asserts retry rejection, recreates the Activity and checks retained hashes. CI compiles instrumentation; physical execution is a separate gate. No production default or JNI ABI is changed.
