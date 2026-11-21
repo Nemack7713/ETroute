@@ -124,6 +124,7 @@ class FixedProbeEvidenceSession(context: Context, private val pack: PinnedRuntim
                         submission
                     } finally {
                         done.set(true); watcher?.interrupt(); watcher?.join(1000)
+                        check(watcher?.isAlive != true) { "Readiness watcher did not end; chain must halt" }
                         val certain = ProbeCompletionReceipt.confirmed(result)
                         request?.let { control.complete(it, certain) }
                         if (certain) check(prefs.edit().putBoolean("uncertain", false).commit())

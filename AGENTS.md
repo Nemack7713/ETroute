@@ -15,7 +15,7 @@ Preserve unrelated work. Inspect the branch, interfaces and existing tests befor
 
 User-reported API 35 device results pass startup/import and ST01–ST05/ST07. User-reported ST08 completion and lifecycle evidence both passed, including replay rejection. ST06 genuine native uncertainty remains open; a debug receipt-loss simulation tests owner retention and retry policy without manufacturing a native termination failure. ST08 connects fresh native observations through the existing coordinator, bounded parser and semantic validator; historical phone reports are regression fixtures only.
 
-ST08 phone confirmation is complete. Verify ST06 owner-side receipt-loss retention on-device while keeping genuine native uncertainty explicitly open before ETuMAX native AAR integration, streaming/recovery and full physical-device acceptance. Default enablement needs a separate final change with an opt-out after those gates. Do not merge this stack or enable general scripts as part of ST08.
+ST08 phone confirmation is complete. User-reported v6 simulated receipt loss and retained-file verification both passed. Chain fixed acceptance cases strictly sequentially, ending each native owner and finalizing its report before the next. Run simulated receipt loss last; halt on failure, Stop, uncertainty or unfinished finalization. Verify chained acceptance on-device while keeping genuine native uncertainty explicitly open before ETuMAX native AAR integration, streaming/recovery and full physical-device acceptance. Default enablement needs a separate final change with an opt-out after those gates. Do not merge this stack or enable general scripts as part of ST08.
 
 ## Android tools and verification
 

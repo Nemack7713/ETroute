@@ -1,0 +1,47 @@
+---
+title: Sequential acceptance chain
+sidebar_position: 15
+---
+
+## One tap, isolated requests
+
+The API 35 phone has reported passing startup, interruption, ST08 completion/lifecycle evidence and v6 simulated receipt-loss retention checks. The next acceptance APK chains those fixed cases without overlapping owners or enabling general scripts. One deliberate tap approves the fixed list; every evidence probe still creates and consumes its own coordinator capability. No user commands or module lists are accepted.
+
+| Order | Case | Completion boundary |
+| --- | --- | --- |
+| 1 | ST01 before attachment | Confirmed no child started; owner and report finalized |
+| 2 | ST02 active Stop | Native return, confirmed termination, watcher ended, report finalized |
+| 3 | ST03 repeated Stop | Same boundary; cancellation count remains one |
+| 4 | ST04 timeout | Native timeout/termination confirmed; watcher and report ended |
+| 5 | ST07 normal completion | Exit zero; owner released and report finalized |
+| 6 | ST08 completion evidence | Coordinator validation and replay rejection completed; owner released |
+| 7 | ST05/ST08 lifecycle | Private child Activity destruction completed, native termination confirmed, worker finished and evidence validated |
+| 8 | ST06 simulated receipt loss | Actual native completion confirmed; owner receipt withheld; snapshot and retry-block checks finalized |
+
+The lifecycle check deliberately destroys a separate non-exported child Activity. The parent waits for a worker completion future **and** completed `onDestroy`, not an Activity-result callback or disappearance of the screen. The child accepts only an in-process, single-attachment slot token from the parent. It cannot accept arbitrary launch parameters. Missing completion triggers explicit cancellation and a bounded additional wait, then halts; a deadline is never a completion receipt.
+
+## Barriers and failure policy
+
+Each synchronous step returns only after native execution, readiness watcher shutdown, owner finalization and bounded per-step reporting. The chain then persists the step result before starting the next. A pass marker alone is insufficient: the adapter also requires a completion boundary and permission to advance. Legacy pre-attachment cancellation is a no-child boundary, not a claim of child termination. Evidence callbacks remain bound to the existing semantic validator.
+
+A failed assertion, exception, missing barrier, unconfirmed termination or operator Stop halts the sequence; later cases are `NOT_RUN`. Stop is latched and explicitly signals the currently owned native request, independently of evidence. It does not advance, delete files or claim termination. A stopped step is labelled `INTERRUPTED`; the native result remains in its detailed report. Normal completion disables Stop with **NO ACTIVE CHAIN** feedback.
+
+Simulated receipt loss is last because it sets the persistent uncertainty marker. Its native process actually ends and the owner is released, but it deliberately does not permit another native case. Only read-only retention inspection follows inside that terminal step. A fully passing chain reports `SEQUENTIAL_CHAIN=PASS_RETRY_BLOCKED`. This does not close genuine native-uncertainty testing. No later native test may follow that terminal retained outcome.
+
+The report includes a same-run retention check; that is not reopening or process-death evidence. After closing and reopening the app, use the separate read-only retention button. The chain never resumes or restarts automatically. Destroying the parent requests Stop. Backgrounding alone retains the bounded current chain; no new service or background-restart mechanism is added. Android may prevent launching the lifecycle child from background; that fails or times out the barrier and halts the chain.
+
+## Retention and limits
+
+A persistent chain claim is committed before dispatch. This dedicated acceptance app allows one chain; failures and process death keep it claimed so a second run cannot overlap an unresolved owner. There is no reset or reconciliation bypass. Each case owns a fresh session, independent controller and bounded diagnostics. Existing eight-evidence-session and twelve-interruption-session caps remain; the chain uses five interruption and three evidence sessions.
+
+There are eight step reports capped at 24,000 bytes each and a 16,000-byte summary. Reports are atomically renamed after bounded writes. Per-step native limits remain unchanged: fixed worker, absolute executable, 3-second timeout test and 10-second ordinary wall-time limits, bounded stdout/stderr and RLIMIT settings. Readiness watchers must end before a step can return. Artifacts are retained; cleanup is not asserted.
+
+## Phone procedure
+
+Install **ETroute Sequential Checks v7** alongside the previous apps. Tap **RUN FIXED TEST CHAIN** once. A lifecycle child screen briefly appears and closes automatically; wait for the parent summary. Expect eight passes with `barrierReached=true` and final `PASS_RETRY_BLOCKED`. The last step has `permitsNext=false` intentionally. Paste the summary; detailed reports are available separately.
+
+Then close and reopen the app and tap **VERIFY RETENTION AFTER REOPEN**. Expect retained hashes/directories and the uncertainty marker to remain intact. Run stays disabled intentionally. General scripts remain disabled throughout. Do not clear prior apps to run this chain.
+
+## Verification
+
+Five JVM tests cover non-overlap with a real thread/latch, report ordering, failure/uncertainty short-circuiting, Stop waiting for the current step, terminal retention placement and replay rejection. A full-chain instrumentation test exercises the real coordinator, native Stop/timeouts and actual child destruction; run it alone on a fresh chain-check installation. CI compiles instrumentation rather than executing device tests. ETuMAX backend integration, genuine native uncertainty, process-death reconciliation and final default enablement remain separate work.

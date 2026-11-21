@@ -18,6 +18,11 @@ internal class InterruptionAcceptance(private val context: Context) {
     fun stop() { aborted.set(true); owner.get()?.requestStop() }
     fun onDestroyed() { destroyed.set(true); aborted.set(true); owner.get()?.close() }
 
+    fun runSingle(case: AcceptanceCase): String = exclusive {
+        require(case != AcceptanceCase.DESTROY) { "Use the lifecycle host for destruction" }
+        runCase(case)
+    }
+
     fun runSuite(progress: (String) -> Unit): String = exclusive { runSuiteOwned(progress) }
 
     private fun runSuiteOwned(progress: (String) -> Unit): String {
@@ -128,6 +133,7 @@ internal class InterruptionAcceptance(private val context: Context) {
             control.close(); owner.compareAndSet(control, null)
             if (confirmed) prefs.edit().putBoolean("uncertain", false).commit()
         }
+        check(watcher?.isAlive != true) { "Diagnostic watcher did not end; chain must halt" }
         val bytes = report.toByteArray(Charsets.UTF_8)
         File(paths.diagnostics, "acceptance-report.txt").writeBytes(bytes.copyOfRange(0, minOf(bytes.size, 20000)))
         persistLatest(report)

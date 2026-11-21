@@ -1,9 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application android:label="ETroute Retention Fix v6" android:extractNativeLibs="true" android:allowBackup="false" android:theme="@android:style/Theme.Material.NoActionBar">
+    <application android:label="ETroute Sequential Checks v7" android:extractNativeLibs="true" android:allowBackup="false" android:theme="@android:style/Theme.Material.NoActionBar">
         <activity android:name=".EvidenceActivity" android:exported="false" />
         <activity android:name=".MainActivity" android:exported="false" />
         <activity android:name=".AcceptanceActivity" android:exported="false" />
-        <activity android:name=".UncertaintyActivity" android:exported="true">
+        <activity android:name=".UncertaintyActivity" android:exported="false" />
+        <activity android:name=".ChainLifecycleActivity" android:exported="false" />
+        <activity android:name=".AcceptanceChainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
