@@ -55,6 +55,14 @@ endif()
 option(ETROUTE_BUILD_NATIVE_TESTS "Build native supervisor and JNI ABI contract tests" OFF)
 
 if(ETROUTE_BUILD_NATIVE_TESTS)
+    enable_testing()
+    add_test(NAME cancellation COMMAND etroute_cancellation_test)
+    add_test(NAME supervisor_smoke COMMAND etroute_native_supervisor_smoke)
+    add_test(NAME jni_abi COMMAND etroute_jni_abi_contract_test)
+    add_executable(etroute_cancellation_test tests/cancellation_test.cpp)
+    target_link_libraries(etroute_cancellation_test PRIVATE etroute_native_supervisor)
+    target_compile_features(etroute_cancellation_test PRIVATE cxx_std_20)
+
     add_executable(etroute_native_supervisor_smoke
         tests/native_supervisor_smoke.cpp
     )

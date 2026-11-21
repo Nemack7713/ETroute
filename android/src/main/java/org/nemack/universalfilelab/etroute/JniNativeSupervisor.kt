@@ -1,5 +1,7 @@
 package org.nemack.universalfilelab.etroute
 
+import java.util.concurrent.atomic.AtomicBoolean
+
 enum class NativeSpawnStage(val wire: Int) {
     OK(0),
     INVALID_ARGUMENT(1),
@@ -14,7 +16,9 @@ enum class NativeSpawnStage(val wire: Int) {
     DUP2_STDERR(10),
     EXECVE(11),
     WAITPID(12),
-    TIMEOUT_KILL(13);
+    TIMEOUT_KILL(13),
+    CANCELLED(14),
+    CLEANUP_UNCONFIRMED(15);
 
     companion object {
         fun fromWire(value: Int): NativeSpawnStage =
@@ -76,6 +80,8 @@ data class NativeRunResult(
     val spawnErrno: Int,
     val stage: NativeSpawnStage
 ) {
+    val cancelled: Boolean get() = stage == NativeSpawnStage.CANCELLED
+
     val succeeded: Boolean
         get() = stage == NativeSpawnStage.OK &&
             !timedOut &&
@@ -104,7 +110,9 @@ class JniNativeSupervisor {
     private external fun nativePolicyVersion(): Long
     private external fun nativeAddressSpaceLimit(): LongArray
 
-    private external fun nativeRun(
+    private external fun nativeCancellationVersion(): Long
+
+    private external fun nativeRunCancellable(
         executable: String,
         argv: Array<String>,
         envp: Array<String>,
@@ -116,7 +124,8 @@ class JniNativeSupervisor {
         cpuSeconds: Long,
         maxOpenFiles: Long,
         maxFileBytes: Long,
-        maxAddressSpaceBytes: Long
+        maxAddressSpaceBytes: Long,
+        cancellation: AtomicBoolean
     ): LongArray
 
     fun abiVersionForValidation(): Long = nativeAbiVersion()
@@ -135,8 +144,28 @@ class JniNativeSupervisor {
         )
     }
 
-    fun run(launch: PreparedLaunch): NativeRunResult {
-        val raw = nativeRun(
+    // Prepare on the controller thread before dispatch so an early Stop is retained.
+    fun prepare(launch: PreparedLaunch): Request {
+        check(nativeCancellationVersion() == 1L) { "Native cancellation capability mismatch" }
+        return Request(launch)
+    }
+
+    inner class Request internal constructor(private val launch: PreparedLaunch) {
+        val requestId: String get() = launch.requestId
+        private val stopped = AtomicBoolean(false)
+        private val started = AtomicBoolean(false)
+        // Idempotent request only: completion is established by run() returning.
+        fun cancel() { stopped.set(true) }
+        fun run(): NativeRunResult {
+            check(started.compareAndSet(false, true)) { "Request is single-use" }
+            return runCancellable(launch, stopped)
+        }
+    }
+
+    fun run(launch: PreparedLaunch): NativeRunResult = prepare(launch).run()
+
+    private fun runCancellable(launch: PreparedLaunch, stopped: AtomicBoolean): NativeRunResult {
+        val raw = nativeRunCancellable(
             executable = launch.executable,
             argv = arrayOf(launch.executable) + launch.arguments.toTypedArray(),
             envp = launch.environment
@@ -151,7 +180,8 @@ class JniNativeSupervisor {
             cpuSeconds = launch.limits.cpuSeconds,
             maxOpenFiles = launch.limits.maxOpenFiles,
             maxFileBytes = launch.limits.maxFileBytes,
-            maxAddressSpaceBytes = launch.limits.maxAddressSpaceBytes
+            maxAddressSpaceBytes = launch.limits.maxAddressSpaceBytes,
+            cancellation = stopped
         )
 
         require(raw.size == RESULT_FIELD_COUNT) {

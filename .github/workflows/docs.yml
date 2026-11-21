@@ -1,0 +1,31 @@
+name: Documentation checks
+on:
+  pull_request:
+    paths: ['docs-site/**', '.github/workflows/docs.yml']
+  push:
+    branches: [main, docs/runtimepack-admission]
+    paths: ['docs-site/**', '.github/workflows/docs.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: docs-site
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+      - run: npm run lint
+      - run: npm run build
+      - uses: actions/upload-artifact@v5
+        with:
+          name: etroute-docs-preview
+          path: docs-site/build
+          if-no-files-found: error
+          retention-days: 14

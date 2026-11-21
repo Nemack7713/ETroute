@@ -33,6 +33,8 @@ enum class SpawnStageWire : std::int64_t {
     Execve = 11,
     Waitpid = 12,
     TimeoutKill = 13,
+    Cancelled = 14,
+    CleanupUnconfirmed = 15,
 };
 
 }  // namespace etroute::jni
