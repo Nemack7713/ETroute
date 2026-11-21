@@ -35,4 +35,13 @@ class ManualProbeDiagnosticsTest {
         val output = ManualProbeDiagnostics.read(file)
         assertTrue(output.truncated); assertEquals(4096, output.text.length)
     }
+    @Test fun waitAndPipeErrorsNeverClearUncertaintyEvenWithExitInformation() {
+        assertTrue(ManualProbeDiagnostics.terminationConfirmed(ok))
+        assertFalse(ManualProbeDiagnostics.terminationConfirmed(null))
+        for (stage in listOf(NativeSpawnStage.WAITPID, NativeSpawnStage.ERROR_PIPE, NativeSpawnStage.CLEANUP_UNCONFIRMED)) {
+            assertFalse(ManualProbeDiagnostics.terminationConfirmed(ok.copy(stage = stage)))
+        }
+        assertFalse(ManualProbeDiagnostics.terminationConfirmed(ok.copy(exitCode = null)))
+    }
+
 }

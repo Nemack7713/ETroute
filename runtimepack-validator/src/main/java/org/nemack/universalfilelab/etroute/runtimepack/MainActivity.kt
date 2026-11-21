@@ -132,7 +132,7 @@ class MainActivity : Activity() {
         } catch (error: Throwable) {
             "FIXED_PYTHON_PROBE=ERROR\n${error::class.java.simpleName}: ${error.message?.take(512)}\nsession=$id\nlaunchAuthorized=false"
         } finally {
-            val confirmed = result != null && result?.stage != NativeSpawnStage.CLEANUP_UNCONFIRMED
+            val confirmed = ManualProbeDiagnostics.terminationConfirmed(result)
             request?.let { control.complete(it, confirmed) }
             if (confirmed) preferences.edit().putBoolean("uncertain", false).commit()
             // No deletion: diagnostic files remain for review, including failures/uncertainty.
