@@ -13,7 +13,6 @@ int main(int argc, char **argv) {
     PyConfig_InitIsolatedConfig(&config);
     config.site_import = 0;
     config.write_bytecode = 0;
-    config.use_system_logger = 0;
     config.buffered_stdio = 0;
     config.module_search_paths_set = 1;
     PyStatus status = PyConfig_SetBytesString(&config, &config.home, argv[2]);
@@ -30,7 +29,10 @@ int main(int argc, char **argv) {
     }
     PyConfig_Clear(&config);
     int result = PyRun_SimpleString(
-        "import sys, json, math, hashlib, ssl, sqlite3\n"
+        "import sys, io\n"
+        "sys.stdout = io.TextIOWrapper(io.FileIO(1, 'w', closefd=False), encoding='utf-8', write_through=True)\n"
+        "sys.stderr = io.TextIOWrapper(io.FileIO(2, 'w', closefd=False), encoding='utf-8', write_through=True)\n"
+        "import json, math, hashlib, ssl, sqlite3\n"
         "assert sys.version_info[:3] == (3, 14, 4)\n"
         "assert math.isqrt(81) == 9\n"
         "assert hashlib.sha256(b'etroute').hexdigest()\n"
