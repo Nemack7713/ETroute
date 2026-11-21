@@ -11,6 +11,17 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class ReceiptLossAcceptanceTest {
+    @Test fun androidAppRootAliasResolvesRetainedFile() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val id = java.util.UUID.randomUUID().toString()
+        val actual = File(context.filesDir.canonicalFile, "etroute/sessions/$id/diagnostics/stdout.log")
+        actual.parentFile!!.mkdirs(); actual.writeText("alias-regression")
+        val alias = File(context.cacheDir, "files-alias-$id")
+        java.nio.file.Files.createSymbolicLink(alias.toPath(), context.filesDir.canonicalFile.toPath())
+        assertEquals(actual, ReceiptLossFiles.diagnostic(alias, id, "stdout.log"))
+        assertEquals("alias-regression", actual.readText())
+    }
+
     @Test fun lostReceiptBlocksRetryAndSurvivesActivityRecreation() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         ActivityScenario.launch(UncertaintyActivity::class.java).use { scenario ->
