@@ -40,7 +40,8 @@ internal class ProbeAuthorizationRegistry(
         data class Rejected(val reason: Rejection) : Claim()
     }
     private enum class State { ISSUED, CONSUMED, EXPIRED, REVOKED }
-    private data class Entry(val scope: ProbeScope, val issued: Long, val ttlNanos: Long, var state: State)
+    private data class Entry(val scope: ProbeScope, val issued: Long, val ttlNanos: Long, var state: State,
+        var receipt: Claim.Consumed? = null, var evidenceAttempted: Boolean = false)
     private val entries = mutableMapOf<Capability, Entry>()
     private val nonces = mutableSetOf<String>()
     private var closed = false
@@ -78,7 +79,17 @@ internal class ProbeAuthorizationRegistry(
             return Claim.Rejected(Rejection.SCOPE_MISMATCH)
         }
         entry.state = State.CONSUMED
-        return Claim.Consumed(capability.id, entry.scope)
+        val receipt = Claim.Consumed(capability.id, entry.scope)
+        entry.receipt = receipt
+        return receipt
+    }
+
+    // Reference identity binds evidence to a real claim, including failed submission attempts.
+    @Synchronized fun recordEvidenceAttempt(receipt: Claim.Consumed): Boolean {
+        val entry = entries.values.firstOrNull { it.receipt === receipt } ?: return false
+        if (entry.state != State.CONSUMED || entry.evidenceAttempted) return false
+        entry.evidenceAttempted = true
+        return true
     }
 
     @Synchronized fun revoke(capability: Capability): Boolean {
