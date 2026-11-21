@@ -21,6 +21,7 @@ android {
         jniLibs.srcDir("$candidate/jniLibs")
         assets.srcDir("$candidate/assets")
     }
+    androidResources { ignoreAssetsPattern = "!.git:!.svn" }
     packaging {
         jniLibs.useLegacyPackaging = true
         jniLibs.keepDebugSymbols += "**/*.so"
