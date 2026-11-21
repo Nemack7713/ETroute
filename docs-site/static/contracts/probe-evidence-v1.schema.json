@@ -1,0 +1,230 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "probeStage": {
+      "const": "authorized-execution"
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "capabilityId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "nonce": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "scopeSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "state": {
+          "const": "consumed"
+        }
+      },
+      "required": [
+        "capabilityId",
+        "nonce",
+        "scopeSha256",
+        "state"
+      ]
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "inspectionSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "inventorySha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "probeScriptSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "appBuildIdentity": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "processAbi": {
+          "enum": [
+            "arm64-v8a",
+            "x86_64"
+          ]
+        },
+        "api": {
+          "type": "integer",
+          "minimum": 26,
+          "maximum": 10000
+        }
+      },
+      "required": [
+        "inspectionSha256",
+        "inventorySha256",
+        "probeScriptSha256",
+        "appBuildIdentity",
+        "processAbi",
+        "api"
+      ]
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "result": {
+          "enum": [
+            "completed",
+            "failed",
+            "cancelled",
+            "timed-out",
+            "not-started",
+            "unknown"
+          ]
+        },
+        "durationMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "retainedOutputBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "droppedOutputBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "wallTimeLimitMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "outputLimitBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "exitCode": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "signal": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "nativeStage": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "result",
+        "durationMs",
+        "retainedOutputBytes",
+        "droppedOutputBytes",
+        "wallTimeLimitMs",
+        "outputLimitBytes",
+        "exitCode",
+        "signal",
+        "nativeStage"
+      ]
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "payloadSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "payloadRef": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "payloadSha256",
+        "payloadRef"
+      ]
+    },
+    "cleanup": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "termination": {
+          "enum": [
+            "confirmed",
+            "not-started",
+            "unconfirmed"
+          ]
+        },
+        "artifacts": {
+          "enum": [
+            "removed",
+            "retained",
+            "none"
+          ]
+        }
+      },
+      "required": [
+        "termination",
+        "artifacts"
+      ]
+    },
+    "userScriptLaunchAuthorized": {
+      "const": false
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "maxLength": 40,
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,9})?Z$"
+    },
+    "attestation": {
+      "const": "unsigned"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "probeStage",
+    "requestId",
+    "authorization",
+    "binding",
+    "execution",
+    "evidence",
+    "cleanup",
+    "userScriptLaunchAuthorized",
+    "timestamp",
+    "attestation"
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Proposed ETroute probe evidence v1"
+}
