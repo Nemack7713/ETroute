@@ -9,11 +9,11 @@ android {
     compileSdk = 36
     buildToolsVersion = "35.0.0"
     defaultConfig {
-        applicationId = "org.nemack.universalfilelab.etroute.runtimepack.acceptance"
+        applicationId = "org.nemack.universalfilelab.etroute.runtimepack.evidence"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "3.14.4-acceptance-v3"
+        versionCode = 4
+        versionName = "3.14.4-evidence-v4"
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
