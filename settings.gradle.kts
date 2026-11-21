@@ -17,3 +17,7 @@ dependencyResolutionManagement {
 rootProject.name = "ETroute"
 include(":android")
 include(":device-validator")
+// Opt-in feasibility APK only; the default application/build does not include a Python runtime.
+if (providers.gradleProperty("etrouteRuntimePack").orNull == "true") {
+    include(":runtimepack-validator")
+}

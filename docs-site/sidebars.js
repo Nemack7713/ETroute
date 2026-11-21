@@ -4,6 +4,6 @@ module.exports = {engineering: ['overview', {
     'enhancements/bounded-streaming', 'enhancements/session-recovery',
     'enhancements/device-acceptance-suite', 'enhancements/device-probe-contract',
     'enhancements/probe-authorization', 'enhancements/bounded-evidence-validation',
-    'enhancements/android-stop-lifecycle',
+    'enhancements/android-stop-lifecycle', 'enhancements/python-runtimepack-candidate',
   ],
 }]};
