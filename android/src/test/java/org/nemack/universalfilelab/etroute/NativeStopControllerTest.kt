@@ -50,6 +50,22 @@ class NativeStopControllerTest {
         try { control.attach(Request()); fail("Replaced active request") } catch (_: IllegalStateException) { }
         control.requestStop(); assertEquals(1, request.cancels.get())
     }
+    @Test fun stopRacingWithCompletionCannotCancelTheNextRequestByStaleIdentity() {
+        val pool = Executors.newFixedThreadPool(2)
+        try {
+            repeat(100) {
+                val control = controller(); val first = Request(); val next = Request(); control.attach(first)
+                val complete = pool.submit(Callable { control.complete(first, true) })
+                val stop = pool.submit(Callable { control.requestStop() })
+                complete.get(5, TimeUnit.SECONDS); stop.get(5, TimeUnit.SECONDS)
+                assertTrue(first.cancels.get() in 0..1)
+                assertTrue(control.attach(next)); assertEquals(1, next.cancels.get())
+                control.complete(first, false)
+                assertFalse(control.requiresRecovery()); control.requestStop()
+                assertEquals(1, next.cancels.get())
+            }
+        } finally { pool.shutdownNow() }
+    }
     @Test fun concurrentStopAttachmentAndCompletionNeverSignalAnotherRequest() {
         val pool = Executors.newFixedThreadPool(3)
         try {

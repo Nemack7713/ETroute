@@ -25,7 +25,7 @@ was identified; this inventory is not cryptographic RuntimePack admission.
 
 Local checks: native ABI/smoke/cancellation regression script and 21 Python tests passed.
 The documentation checks and Android/JNI/JVM cumulative results are recorded in the PR.
-Eight new JUnit 4 tests use fake request handles and real multithreaded races; actual JNI
+Nine new JUnit 4 tests use fake request handles and real multithreaded races; actual JNI
 crossing is separately covered by host CI, not those fake-based tests. Instrumentation APK
 compilation is not physical-device instrumentation execution.
 
