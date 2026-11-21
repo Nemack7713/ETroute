@@ -8,5 +8,6 @@ module.exports = {engineering: ['overview', {
     'enhancements/python-interruption-acceptance',
       'enhancements/probe-evidence-handoff',
       'enhancements/receipt-loss-retention',
+      'enhancements/sequential-acceptance-chain',
   ],
 }]};
