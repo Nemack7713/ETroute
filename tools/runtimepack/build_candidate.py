@@ -67,7 +67,7 @@ def main():
     for cache in payload.rglob('__pycache__'):
         shutil.rmtree(cache)
     assets = output / 'assets/runtimepack'
-    inventory = dict(schemaVersion=1, id='cpython-3.14.4-arm64-probe', version='official-3.14.4-probe-v1',
+    inventory = dict(schemaVersion=1, id='cpython-3.14.4-arm64-acceptance', version='official-3.14.4-probe-v2',
                      pythonVersion=VERSION, abi='arm64-v8a', minApi=26, maxApi=35,
                      executable=executable.name, upstreamSha256=ARCHIVE_SHA256,
                      ndk=NDK, etrouteCommit=os.environ.get('GITHUB_SHA'), workerSha256=sha(ROOT / 'runtimepack/python-worker.c'),
