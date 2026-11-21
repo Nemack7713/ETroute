@@ -1,0 +1,64 @@
+name: Pinned Python RuntimePack candidate
+on:
+  pull_request:
+    paths: ['runtimepack/**', 'runtimepack-validator/**', 'tools/runtimepack/**', '.github/workflows/python-runtimepack.yml', 'settings.gradle.kts']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+          cache-disabled: true
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Install pinned build components
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0' 'cmake;3.22.1' 'ndk;27.3.13750724' 'ndk;27.0.12077973'
+      - name: Download official pinned Android package
+        run: curl --fail --location --retry 3 'https://www.python.org/ftp/python/3.14.4/python-3.14.4-aarch64-linux-android.tar.gz' --output "$RUNNER_TEMP/python-3.14.4-aarch64-linux-android.tar.gz"
+      - name: Verify and build fixed worker candidate
+        run: python3 tools/runtimepack/build_candidate.py --archive "$RUNNER_TEMP/python-3.14.4-aarch64-linux-android.tar.gz" --output "$RUNNER_TEMP/etroute-python-candidate"
+      - name: Create Gradle wrapper using existing validation setup
+        run: ETROUTE_BUILD_ONLY=1 bash tools/run_android_jni_validation.sh
+      - name: Build opt-in preflight APK and feasibility instrumentation
+        run: ./gradlew --no-daemon --console=plain -PetrouteRuntimePack=true -PruntimepackBuildDir="$RUNNER_TEMP/etroute-python-candidate" :runtimepack-validator:assembleDebug :runtimepack-validator:assembleDebugAndroidTest
+      - name: Inspect packaged native worker and payload
+        run: |
+          python3 - <<'PY'
+          import zipfile, json, hashlib
+          from pathlib import Path
+          apk = Path('runtimepack-validator/build/outputs/apk/debug/runtimepack-validator-debug.apk')
+          with zipfile.ZipFile(apk) as z:
+              assert 'lib/arm64-v8a/libetroute_python_worker.so' in z.namelist()
+              assert 'lib/arm64-v8a/libpython3.14.so' in z.namelist()
+              assert 'assets/runtimepack/inventory.json' in z.namelist()
+              assert z.read('lib/arm64-v8a/libetroute_python_worker.so')[:4] == b'\x7fELF'
+              inventory = json.loads(z.read('assets/runtimepack/inventory.json'))
+              for name, digest in inventory['nativeSha256'].items():
+                  assert hashlib.sha256(z.read('lib/arm64-v8a/' + name)).hexdigest() == digest
+              for name, digest in inventory['payloadSha256'].items():
+                  assert hashlib.sha256(z.read('assets/runtimepack/payload/' + name)).hexdigest() == digest
+          print('APK_RUNTIMEPACK_CONTENTS=PASS; DEVICE_EXECUTION=UNVERIFIED')
+          PY
+      - uses: actions/upload-artifact@v5
+        with:
+          name: ETroute-Python-3.14.4-arm64-candidate
+          path: |
+            ${{ runner.temp }}/etroute-python-candidate
+            runtimepack-validator/build/outputs/apk/debug/*.apk
+            runtimepack-validator/build/outputs/apk/androidTest/debug/*.apk
+          if-no-files-found: error
+          retention-days: 30
