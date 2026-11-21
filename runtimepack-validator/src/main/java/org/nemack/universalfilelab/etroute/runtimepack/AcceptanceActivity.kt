@@ -30,7 +30,11 @@ class AcceptanceActivity : Activity() {
         stop = Button(this).apply { text = "STOP"; isEnabled = false; setOnClickListener { runner?.stop(); text = "STOP REQUESTED" } }
         val latest = Button(this).apply { text = "SHOW LATEST REPORT"; setOnClickListener { showLatest() } }
         output = TextView(this).apply { textSize = 13f; setTextIsSelectable(true) }
-        root.addView(suite); root.addView(lifecycle); root.addView(stop); root.addView(latest)
+        val evidence = Button(this).apply {
+            text = "OPEN ST08 EVIDENCE CHECKS"
+            setOnClickListener { if (!busy.get()) startActivity(android.content.Intent(this@AcceptanceActivity, EvidenceActivity::class.java)) }
+        }
+        root.addView(suite); root.addView(lifecycle); root.addView(stop); root.addView(latest); root.addView(evidence)
         root.addView(ScrollView(this).apply { addView(output) }, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
         showLatest()

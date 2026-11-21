@@ -1,0 +1,56 @@
+---
+title: Fixed probe evidence hand-off
+sidebar_position: 13
+---
+
+import Mermaid from '@theme/Mermaid';
+
+## Fresh execution, authoritative observation
+
+The API 35 phone reported startup/import success in 172 ms and lifecycle cancellation in 835 ms. These are observations, not required timings or signed attestations. The previous acceptance build also passed ST01–ST05 and ST07. Historical text cannot create a consumed authorization receipt. Regression tests reproduce its output shape; the new screen performs fresh native runs.
+
+<Mermaid value={`flowchart TD
+  A[APK-pinned preflight] --> B[Explicit fixed-probe approval]
+  B --> C[Consume one-use claim]
+  C --> D[Native observation and bounded bytes]
+  D --> E{Strict evidence validator}
+  E -->|Completed| F[Successful; diagnostics retained]
+  E -->|Cancelled| G[Unsuccessful; diagnostics retained]
+  E -->|Invalid| H[Reject evidence]
+`} />
+
+## Contract
+
+`FixedProbeEvidenceSession` is an application composition API for APK-trusted pins, not an IPC authorization service. It installs the existing internal coordinator and registry with a fixed native runner. Preflight is repeated before authorization and dispatch. The compiled worker hash binds the v1 `probeScriptSha256` field; there is no external Python script. Only compiled-in `--probe` and `--probe-wait` modes exist. Caller-supplied commands, script paths and module lists are absent.
+
+The one-use claim is consumed before native dispatch. The application owns Stop and Activity destruction independently. Coordinator close invalidates authorization; it does not substitute for native Stop. A repeat dispatch must reject. One session instance runs once; a process-wide evidence-run lease prevents simultaneous evidence owners.
+
+The parent builds the existing `authorized-execution` v1 envelope from the real native return, API, bound inventory, request ID and exact bytes. Stdout and stderr each have a 4,096-byte file/read cap; payload is stdout bytes followed by stderr bytes, at most 8,192 bytes. Raw stream files preserve the split. SHA-256 covers these exact concatenated bytes. The outer envelope remains capped at 16 KiB. Oversized reads reject before envelope construction; no truncated JSON prefix is accepted. The fixed worker has no unbounded output loop; native timeout is 10 seconds with the existing termination grace. Readiness is observed for up to eight seconds.
+
+| Result | Semantic outcome | Retention |
+| --- | --- | --- |
+| Exit zero, native OK, marker, no stderr or owner Stop | Validated successful probe | Retained |
+| Activity destruction after readiness, native cancellation, confirmed termination | Validated unsuccessful observation | Retained |
+| Unknown or unconfirmed native termination | Never successful | Retained; retry blocked |
+| Invalid binding, replay, hash, schema or bounds | Rejected | Retained |
+
+Successful execution does not require deleting diagnostics. The validator now permits `artifacts=retained` with a confirmed successful native outcome, returning `retainSession=true`. This does not assert cleanup was performed, grant launch authorization or weaken the confirmed-termination requirement.
+
+Evidence is unsigned and process-local. No claim is reconstructed after process death. An in-flight marker blocks new evidence runs after uncertainty; no restart or recovery bypass is supplied. Eight evidence sessions bound retained disk use. Each final report is capped at 24,000 bytes; envelope and payload files are bounded independently. General execution stays disabled. This is the fixed-probe path, not finished ETuMAX production integration.
+
+## Phone verification
+
+Install **ETroute Probe Evidence** alongside the existing acceptance app. It has a distinct application ID, preserving earlier diagnostics and avoiding CI debug-signing update conflicts. Open **ST08 EVIDENCE CHECKS**, then:
+
+1. Tap **RUN ST08 COMPLETION EVIDENCE**. Expect `ST08_COMPLETE=PASS`, `successfulProbe=true`, `retainSession=true`, and `replayBlocked=true`.
+2. Tap **RUN ST08 LIFECYCLE**. The evidence screen closes after readiness. Reopen that screen and tap **SHOW LATEST EVIDENCE**. Expect `ST08_LIFECYCLE=PASS`, `successfulProbe=false`, `retainSession=true`, `destroyed=true`, and `replayBlocked=true`.
+
+Both reports must retain `generalScriptExecutionEnabled=false`. ST06 physical uncertainty remains pending. The previous interruption suite retains its historical ST08-not-connected label because that suite does not use this separate evidence runner.
+
+## Verification and Android CLI
+
+Three new JVM tests exercise successful retained evidence, cancelled retained evidence, replay and oversize generation. Two instrumentation tests exercise the real coordinator and Activity destruction; CI compiles them and phone execution is a separate gate.
+
+The optional tooling workflow downloads the official standalone Android CLI and checks a reviewed SHA-256 (version 1.1.16919734). The `latest` URL is mutable: a changed binary fails verification until its version and checksum are deliberately reviewed. Project skills use verified command syntax, are checked for nonempty instruction files and uploaded with file hashes. Skill contents remain upstream-managed rather than pinned; the artifact records what CI downloaded. Installation in one job does not install skills in other jobs or Codespaces. No AI agent runs in that workflow.
+
+Sources: [Android CLI overview](https://developer.android.com/tools/agents/android-cli), [skills command reference](https://developer.android.com/tools/agents/android-cli/commands/skills).

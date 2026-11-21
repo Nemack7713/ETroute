@@ -124,7 +124,7 @@ internal class ProbeEvidenceValidator(
             if (hash != payloadHash) reject(Reason.HASH)
             budget()
             val success = outcome == "completed" && exit == 0L && signal == null &&
-                stage == 0L && termination == "confirmed" && artifacts in setOf("removed", "none") && duration <= scope.wallTimeLimitMs
+                stage == 0L && termination == "confirmed" && artifacts in setOf("removed", "none", "retained") && duration <= scope.wallTimeLimitMs
             if (outcome == "completed" && !success) reject(Reason.OUTCOME)
             // Bound overruns and cleanup uncertainty remain recordable as unsuccessful observations.
             Result.Validated(success, termination == "unconfirmed" || artifacts == "retained")
