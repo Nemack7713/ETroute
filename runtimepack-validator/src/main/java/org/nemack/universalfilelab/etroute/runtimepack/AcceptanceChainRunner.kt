@@ -12,7 +12,7 @@ internal class AcceptanceChainRunner(context: Context, private val launchLifecyc
     private val context = context.applicationContext
     private val halted = AtomicBoolean(false)
     private val cancel = AtomicReference<(() -> Unit)?>(null)
-    private lateinit var chain: SequentialAcceptanceChain
+    @Volatile private lateinit var chain: SequentialAcceptanceChain
     fun stop() { halted.set(true); if (::chain.isInitialized) chain.stop(); cancel.get()?.invoke() }
     private fun attach(stop: () -> Unit) { cancel.set(stop); if (halted.get()) stop() }
     private fun result(report: String, prefix: String, permitsNext: Boolean = true): SequentialAcceptanceChain.Result {
