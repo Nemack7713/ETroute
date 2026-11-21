@@ -34,6 +34,17 @@ class ProbeEvidenceSubmissionTest {
         val result = checkSubmission(true)
         assertFalse(result.successfulProbe); assertTrue(result.retainSession)
     }
+    @Test fun missingReceiptValidatesOnlyAsUnknownRetainedObservation() {
+        val registry = ProbeAuthorizationRegistry()
+        val claim = registry.claim(registry.issueApprovedScope(scope, 30000), scope) as ProbeAuthorizationRegistry.Claim.Consumed
+        val observation = ProbeEvidenceValidator.Observation("receipt-loss", "arm64-v8a", 35, "device",
+            "2026-11-21T18:00:00Z", "unknown", 335, payload.size.toLong(), 0,
+            null, null, null, "unconfirmed", "retained")
+        val submission = ProbeEvidenceSubmission.build(claim, observation, payload)
+        val result = ProbeEvidenceValidator(registry).validate(submission.envelope, payload, claim, observation)
+            as ProbeEvidenceValidator.Result.Validated
+        assertFalse(result.successfulProbe); assertTrue(result.retainSession)
+    }
     @Test fun builderRejectsOversizeBeforeSerialization() {
         val registry = ProbeAuthorizationRegistry()
         val claim = registry.claim(registry.issueApprovedScope(scope, 30000), scope) as ProbeAuthorizationRegistry.Claim.Consumed
