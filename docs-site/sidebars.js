@@ -3,5 +3,6 @@ module.exports = {engineering: ['overview', {
     'enhancements/runtimepack-admission', 'enhancements/etumax-native-backend',
     'enhancements/bounded-streaming', 'enhancements/session-recovery',
     'enhancements/device-acceptance-suite', 'enhancements/device-probe-contract',
+    'enhancements/probe-authorization',
   ],
 }]};
