@@ -46,11 +46,28 @@ the APK into Android's nativeLibraryDir so the packaged worker has an app-owned 
 location. The stdlib is staged into app-private data and checked against packaged trusted
 inventory. Preflight requires API 26 through 35 and arm64; other devices reject.
 
-The ordinary APK screen only installs payload and runs read-only preflight. It does not
-launch Python. Separately invoked Android instrumentation may run the fixed worker through
-ETroute with timeout, CPU/open-file/file-size limits and request-owned Stop. That is an
-explicit feasibility test, not the production coordinator's authorization path. It retains
-session diagnostics and does not promote admission or enable general scripts.
+The initial preflight-only APK passed on the user's API 35 arm64 phone: the screenshot
+reported READY_FOR_DEVICE_PROBE, 2,489 measured files, launchAuthorized=false and no Python
+launch. This is user-supplied device evidence, not an independently collected signed record.
+
+The manual-probe revision installs alongside that checker as ETroute Python Probe, using
+an application ID ending in .manualprobe. Its fixed startup/import button is explicit
+feasibility approval, not the production coordinator's capability interface. It rechecks
+preflight every time, then launches only the known worker through NativeSupervisor with
+10-second wall timeout, 5-second CPU limit, 64 open-file limit and 8 KiB per-file output cap.
+There are no script/module input controls or automatic execution on app start.
+
+Stop is request-owned, latched before attachment and independent of capability/evidence.
+Activity destruction closes that owner. The display reads at most 8 KiB per stream and
+rejects a success classification for truncation, missing output, native failure or Stop.
+Success requires native exit success plus the fixed worker's startup/import marker.
+Reports are retained with a 20,000-byte cap. At most eight manual diagnostic sessions are
+reserved per app-data installation. A persisted in-flight/uncertain flag blocks another probe
+after process death or unconfirmed termination; no automatic cleanup or recovery is claimed.
+
+Separately invoked instrumentation can exercise the same fixed worker. Neither button nor
+instrumentation promotes admission, emits a production semantic evidence envelope or enables
+general user scripts. Real device execution remains pending after compilation and unit tests.
 
 A successful build, ELF check or APK-content check cannot establish that Android loads the
 worker, that imports succeed, or that native cancellation and cleanup work on-device.

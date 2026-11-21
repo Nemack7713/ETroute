@@ -34,7 +34,7 @@ jobs:
       - name: Create Gradle wrapper using existing validation setup
         run: ETROUTE_BUILD_ONLY=1 bash tools/run_android_jni_validation.sh
       - name: Build opt-in preflight APK and feasibility instrumentation
-        run: ./gradlew --no-daemon --console=plain -PetrouteRuntimePack=true -PruntimepackBuildDir="$RUNNER_TEMP/etroute-python-candidate" :runtimepack-validator:assembleDebug :runtimepack-validator:assembleDebugAndroidTest
+        run: ./gradlew --no-daemon --console=plain -PetrouteRuntimePack=true -PruntimepackBuildDir="$RUNNER_TEMP/etroute-python-candidate" :runtimepack-validator:assembleDebug :runtimepack-validator:assembleDebugAndroidTest :runtimepack-validator:testDebugUnitTest :android:testDebugUnitTest
       - name: Inspect packaged native worker and payload
         run: |
           python3 - <<'PY'
@@ -62,3 +62,17 @@ jobs:
             runtimepack-validator/build/outputs/apk/androidTest/debug/*.apk
           if-no-files-found: error
           retention-days: 30
+      - uses: actions/upload-artifact@v5
+        with:
+          name: ETroute-Manual-Python-Probe-APK
+          path: runtimepack-validator/build/outputs/apk/debug/runtimepack-validator-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: manual-probe-unit-results
+          path: |
+            runtimepack-validator/build/test-results/testDebugUnitTest
+            android/build/test-results/testDebugUnitTest
+          if-no-files-found: warn

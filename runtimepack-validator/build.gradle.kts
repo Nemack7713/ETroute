@@ -9,11 +9,11 @@ android {
     compileSdk = 36
     buildToolsVersion = "35.0.0"
     defaultConfig {
-        applicationId = "org.nemack.universalfilelab.etroute.runtimepack"
+        applicationId = "org.nemack.universalfilelab.etroute.runtimepack.manualprobe"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "3.14.4-probe-v1"
+        versionCode = 2
+        versionName = "3.14.4-manual-probe-v2"
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -34,6 +34,7 @@ android {
 }
 dependencies {
     implementation(project(":android"))
+    testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test:core-ktx:1.6.1")
