@@ -5,7 +5,7 @@
 
 // Fixed feasibility probe only. No -c, script file, import list or general interpreter arguments.
 int main(int argc, char **argv) {
-    if (argc != 3 || strcmp(argv[1], "--probe") != 0 || argv[2][0] != '/') return 64;
+    if (argc != 3 || (strcmp(argv[1], "--probe") != 0 && strcmp(argv[1], "--probe-wait") != 0) || argv[2][0] != '/') return 64;
     char stdlib[4096], dynload[4096];
     if (snprintf(stdlib, sizeof(stdlib), "%s/lib/python3.14", argv[2]) >= (int)sizeof(stdlib) ||
         snprintf(dynload, sizeof(dynload), "%s/lib/python3.14/lib-dynload", argv[2]) >= (int)sizeof(dynload)) return 64;
@@ -37,6 +37,12 @@ int main(int argc, char **argv) {
         "assert math.isqrt(81) == 9\n"
         "assert hashlib.sha256(b'etroute').hexdigest()\n"
         "print('ETROUTE_PYTHON_PROBE_OK ' + json.dumps({'python': sys.version.split()[0], 'openssl': ssl.OPENSSL_VERSION, 'sqlite': sqlite3.sqlite_version}), flush=True)\n");
+    if (result == 0 && strcmp(argv[1], "--probe-wait") == 0) {
+        result = PyRun_SimpleString(
+            "import time\n"
+            "print('ETROUTE_PYTHON_PROBE_READY', flush=True)\n"
+            "time.sleep(30)\n");
+    }
     int finalized = Py_FinalizeEx();
     return result == 0 && finalized == 0 ? 0 : 71;
 }

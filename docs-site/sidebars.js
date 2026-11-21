@@ -5,5 +5,6 @@ module.exports = {engineering: ['overview', {
     'enhancements/device-acceptance-suite', 'enhancements/device-probe-contract',
     'enhancements/probe-authorization', 'enhancements/bounded-evidence-validation',
     'enhancements/android-stop-lifecycle', 'enhancements/python-runtimepack-candidate',
+    'enhancements/python-interruption-acceptance',
   ],
 }]};
