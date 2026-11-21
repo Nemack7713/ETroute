@@ -64,7 +64,7 @@ jobs:
           retention-days: 30
       - uses: actions/upload-artifact@v5
         with:
-          name: ETroute-Receipt-Loss-APK
+          name: ETroute-Retention-Fix-APK
           path: runtimepack-validator/build/outputs/apk/debug/runtimepack-validator-debug.apk
           if-no-files-found: error
           retention-days: 30

@@ -19,7 +19,8 @@ internal object ReceiptLossRetention {
     }
     fun verify(context: Context): String {
         val stateFile = File(context.filesDir, "receipt-loss-state.json")
-        check(stateFile.length() in 1..4096)
+        check(stateFile.isFile) { "Retention snapshot is missing; open SHOW LAST RUN REPORT for the initial failure" }
+        check(stateFile.length() in 1..4096) { "Retention snapshot exceeds its size bound or is empty" }
         val state = JSONObject(stateFile.readText())
         val id = state.getString("session")
         val prefs = context.getSharedPreferences("probe-evidence-state", Context.MODE_PRIVATE)
@@ -42,13 +43,10 @@ internal object ReceiptLossRetention {
             !approvalCalled && before == prefs.getInt("attempts", 0)
     }
     private fun file(context: Context, id: String, name: String): File {
-        check(id.matches(Regex("[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}")))
-        return File(context.filesDir, "etroute/sessions/$id/diagnostics/$name").also {
-            check(it.absoluteFile == it.canonicalFile && it.isFile)
-        }
+        return ReceiptLossFiles.diagnostic(context.filesDir, id, name)
     }
     private fun hash(file: File): String {
-        check(file.length() in 0..16384)
+        check(file.length() in 0..16384) { "Retained diagnostic exceeds its size bound: ${file.name}" }
         return MessageDigest.getInstance("SHA-256").digest(file.readBytes()).joinToString("") { "%02x".format(it.toInt() and 255) }
     }
 }

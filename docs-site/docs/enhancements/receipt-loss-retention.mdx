@@ -42,3 +42,15 @@ This validates owner-side uncertainty handling on a device. It does not demonstr
 ## Verification
 
 JVM tests cover delivered and missing receipts, actual native uncertainty despite an exit code, and semantic validation of an unknown retained observation. One instrumentation test runs the real fixed probe, asserts retry rejection, recreates the Activity and checks retained hashes. CI compiles instrumentation; physical execution is a separate gate. No production default or JNI ABI is changed.
+
+## Retention-path repair (v6)
+
+A device run reported generic `Check failed` and then `RETENTION_CHECK_UNAVAILABLE`. The Run button remained disabled because the persistent uncertainty marker was set; that behavior is intentional, including after reopening. The initial test instructions should have made this clearer.
+
+Inspection found a path-check defect reproducible with a symlinked app root: the old code required the absolute diagnostic path to equal its canonical path before normalizing Android's trusted app directory. An Android app directory exposed through an alias can therefore reject an otherwise valid retained file. The screenshot alone does not establish which check failed on that device; v6 adds phase-specific messages and preserves the original probe report to distinguish other causes.
+
+The repair canonicalizes the trusted app root first, then still rejects symlinks below it, invalid session IDs, unexpected file names and missing diagnostics. Four JVM regression tests cover the root alias, an escaping diagnostic symlink, a missing file and invalid path inputs. An additional instrumentation regression covers an app-root alias on Android. CI compiles instrumentation; the real phone retention check remains required.
+
+The UI now labels the disabled button **RUN BLOCKED — DIAGNOSTICS RETAINED**, explains that reopening does not reset it, and adds **SHOW LAST RUN REPORT**. Errors preserve the probe report and identify whether preflight, native probing, snapshot creation, retry gating or retention verification failed. A missing snapshot gives a specific explanation.
+
+**ETroute Retention Fix v6** uses a distinct application ID. Keep the older blocked app installed to preserve its diagnostics; v6 cannot read its private files and does not retroactively verify that earlier run. Run the simulation once in v6, reopen it, then verify retention. The Run button is expected to remain disabled after receipt loss. No retry bypass, data clearing or default enablement is added.

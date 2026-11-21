@@ -9,11 +9,11 @@ android {
     compileSdk = 36
     buildToolsVersion = "35.0.0"
     defaultConfig {
-        applicationId = "org.nemack.universalfilelab.etroute.runtimepack.uncertainty"
+        applicationId = "org.nemack.universalfilelab.etroute.runtimepack.retentionfix"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "3.14.4-receipt-loss-v5"
+        versionCode = 6
+        versionName = "3.14.4-retention-fix-v6"
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
