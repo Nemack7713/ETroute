@@ -12,7 +12,8 @@ data class FixedProbeResult internal constructor(
     val rejection: String?,
     val completionBarrierReached: Boolean,
     val retainSession: Boolean,
-    val diagnosticReport: String = ""
+    val diagnosticReport: String = "",
+    val replayBlocked: Boolean = false
 ) {
     enum class Termination { NOT_STARTED, CONFIRMED, UNCONFIRMED }
     enum class Validation { NOT_ATTEMPTED, REJECTED, VALIDATED }

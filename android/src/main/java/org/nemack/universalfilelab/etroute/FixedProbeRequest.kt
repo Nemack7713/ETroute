@@ -63,11 +63,11 @@ class FixedProbeRequest internal constructor(
     private fun publish(result: FixedProbeResult) = synchronized(lock) {
         if (terminal) return@synchronized
         terminal = true
-        // Release the backend reservation only after the owner barrier; uncertain owners stay blocked.
-        finished(result)
         mutableState.value = Snapshot(handleId,
             if (result.completionBarrierReached && result.termination != FixedProbeResult.Termination.UNCONFIRMED)
                 Phase.FINISHED else Phase.RECOVERY_REQUIRED, result)
+        // Publish terminal state before another handle may reserve this backend.
+        finished(result)
         completed.complete(result)
     }
 }

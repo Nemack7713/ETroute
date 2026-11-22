@@ -52,12 +52,12 @@ internal class AcceptanceChainRunner(context: Context, private val launchLifecyc
                 try {
                     val envelope = request.execute { !halted.get() }
                     val passed = envelope.validation == org.nemack.universalfilelab.etroute.FixedProbeResult.Validation.VALIDATED &&
-                        envelope.successfulProbe && !envelope.generalScriptExecutionEnabled &&
+                        envelope.successfulProbe && envelope.replayBlocked && !envelope.generalScriptExecutionEnabled &&
                         !envelope.actualNativeUncertaintyTested
                     val report = "ST08_COMPLETE=${if (passed) "PASS" else "FAIL"}\nAAR_TYPED_RESULT=true\n" +
                         "validation=${envelope.validation} successfulProbe=${envelope.successfulProbe} termination=${envelope.termination}\n" +
                         "requestId=${envelope.requestId} sessionId=${envelope.sessionId} evidenceRef=${envelope.evidenceRef}\n" +
-                        "handleId=${request.handleId} phase=${request.state.value.phase}\n${envelope.diagnosticReport}\n" +
+                        "handleId=${request.handleId} phase=${request.state.value.phase} replayBlocked=${envelope.replayBlocked}\n${envelope.diagnosticReport}\n" +
                         "generalScriptExecutionEnabled=false\nactualNativeUncertaintyTested=false"
                     SequentialAcceptanceChain.Result(passed, envelope.completionBarrierReached,
                         envelope.termination != org.nemack.universalfilelab.etroute.FixedProbeResult.Termination.UNCONFIRMED, report)

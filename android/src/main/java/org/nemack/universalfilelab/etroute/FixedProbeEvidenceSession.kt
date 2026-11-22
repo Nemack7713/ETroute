@@ -213,7 +213,7 @@ class FixedProbeEvidenceSession(context: Context, private val pack: PinnedRuntim
                     else -> FixedProbeResult.Validation.NOT_ATTEMPTED },
                 validated?.successfulProbe == true, nativeObservation, evidenceRef,
                 (outcome as? ProbeCoordinator.Outcome.Rejected)?.let { it.registryDetail ?: it.reason.name },
-                !runnerError && termination != FixedProbeResult.Termination.UNCONFIRMED, true)
+                !runnerError && termination != FixedProbeResult.Termination.UNCONFIRMED, true, replayBlocked = replayBlocked)
             val expected = validated != null && replayBlocked && if (simulateReceiptLoss)
                 (!validated.successfulProbe && validated.retainSession && prefs.getBoolean("uncertain", false))
             else if (destroyAfterReady)
