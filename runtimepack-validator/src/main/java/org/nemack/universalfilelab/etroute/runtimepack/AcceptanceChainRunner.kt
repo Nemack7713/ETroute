@@ -12,13 +12,23 @@ internal class AcceptanceChainRunner(context: Context, private val launchLifecyc
     private val context = context.applicationContext
     private val halted = AtomicBoolean(false)
     private val cancel = AtomicReference<(() -> Unit)?>(null)
+    private val stopTrace = ChainStopTrace()
+    @Volatile private var currentStep = "BEFORE_CHAIN"
     @Volatile private lateinit var chain: SequentialAcceptanceChain
-    fun stop() { halted.set(true); if (::chain.isInitialized) chain.stop(); cancel.get()?.invoke() }
+    fun stop(cause: ChainStopCause) {
+        val recorded = stopTrace.record(cause, currentStep)
+        halted.set(true); if (::chain.isInitialized) chain.stop(); cancel.get()?.invoke()
+        if (recorded) runCatching {
+            save("chain-stop-reason.txt", stopTrace.report(), 1024)
+        }
+    }
+    fun close() { halted.set(true); if (::chain.isInitialized) chain.stop(); cancel.get()?.invoke() }
+    fun stopReport(): String = stopTrace.report()
     private fun attach(stop: () -> Unit) { cancel.set(stop); if (halted.get()) stop() }
     private fun result(report: String, prefix: String, permitsNext: Boolean = true): SequentialAcceptanceChain.Result {
         val passed = report.startsWith(prefix)
         val barrier = if (permitsNext) report.contains("termination=CONFIRMED") || report.contains("termination=NOT_STARTED") ||
-            report.contains("termination=confirmed") else report.contains("actualNativeTerminationConfirmed=true")
+            report.contains("termination=confirmed") || report.contains("termination=not-started") else report.contains("actualNativeTerminationConfirmed=true")
         return SequentialAcceptanceChain.Result(passed, barrier, permitsNext, report)
     }
     fun run(): String {
@@ -80,13 +90,17 @@ internal class AcceptanceChainRunner(context: Context, private val launchLifecyc
         )
         chain = SequentialAcceptanceChain(steps)
         if (halted.get()) chain.stop()
-        return chain.run(checkpoint = {
+        return try { chain.run(checkpoint = {
+            currentStep = it.lineSequence().last().substringBefore('=')
             save("latest-chain.txt", "SEQUENTIAL_CHAIN=RUNNING\n$it\nautomaticRestart=false\ngeneralScriptExecutionEnabled=false", 16000)
             progress(it)
         }, detail = { id, text ->
             check(id.matches(Regex("[A-Z0-9_]+")))
             save("chain-$id.txt", text, 24000)
-        }).also { save("latest-chain.txt", it, 16000) }
+        }).let { summary ->
+            stopTrace.finish()
+            (summary + "\n" + stopTrace.report()).also { save("latest-chain.txt", it, 16000) }
+        } } finally { stopTrace.finish() }
     }
     private fun save(name: String, text: String, limit: Int) {
         val bytes = text.toByteArray(Charsets.UTF_8)

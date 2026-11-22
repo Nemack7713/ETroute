@@ -26,6 +26,7 @@ class SequentialChainAcceptanceTest {
                 Thread.sleep(100)
             }
             assertTrue(report, report.startsWith("SEQUENTIAL_CHAIN=PASS_RETRY_BLOCKED"))
+            assertTrue(report, report.contains("chainStopCause=NONE"))
             assertEquals(8, report.lineSequence().count { it.contains("=PASS;") && it.contains("barrierReached=true") })
             assertNull(ChainLifecycleBridge.active.get())
             scenario.recreate()

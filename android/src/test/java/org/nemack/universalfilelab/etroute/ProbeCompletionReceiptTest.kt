@@ -18,4 +18,12 @@ class ProbeCompletionReceiptTest {
         for (stage in listOf(NativeSpawnStage.CLEANUP_UNCONFIRMED, NativeSpawnStage.WAITPID, NativeSpawnStage.ERROR_PIPE))
             assertFalse(ProbeCompletionReceipt.confirmed(ok.copy(stage = stage)))
     }
+    @Test fun preForkCancellationIsNotStartedWithoutClaimingChildTermination() {
+        val cancelled = NativeRunResult(null, null, false, 0, 0, NativeSpawnStage.CANCELLED)
+        assertTrue(ProbeCompletionReceipt.noChildStarted(cancelled))
+        assertFalse(ProbeCompletionReceipt.confirmed(cancelled))
+        assertFalse(ProbeCompletionReceipt.noChildStarted(cancelled.copy(stage = NativeSpawnStage.CLEANUP_UNCONFIRMED)))
+        assertFalse(ProbeCompletionReceipt.noChildStarted(cancelled.copy(spawnErrno = 5)))
+        assertFalse(ProbeCompletionReceipt.noChildStarted(null))
+    }
 }

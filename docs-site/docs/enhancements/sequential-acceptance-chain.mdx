@@ -45,3 +45,17 @@ Then close and reopen the app and tap **VERIFY RETENTION AFTER REOPEN**. Expect 
 ## Verification
 
 Five JVM tests cover non-overlap with a real thread/latch, report ordering, failure/uncertainty short-circuiting, Stop waiting for the current step, terminal retention placement and replay rejection. A full-chain instrumentation test exercises the real coordinator, native Stop/timeouts and actual child destruction; run it alone on a fresh chain-check installation. CI compiles instrumentation rather than executing device tests. ETuMAX backend integration, genuine native uncertainty, process-death reconciliation and final default enablement remain separate work.
+
+## Failed-run diagnostics (v8)
+
+The user-reported v7 chain passed ST01, ST02, ST03, ST04 and ST07, then returned `ST08_COMPLETE=FAIL` with coordinator `RUNNER_ERROR`. The summary marked the step interrupted and the chain stopped; the lifecycle and receipt-loss steps were not run. This proves that the chain halted, but the old report cannot identify the exception or the source of Stop. It does not establish whether native execution had started or terminated.
+
+V8 retains a bounded runner failure report: phase, up to three exception causes with two stack frames each, owner Stop/destruction flags, Java thread interruption and actual native-return fields when available. The formatter is capped at 4,096 UTF-8 bytes; the optional session/error-file wrapper remains below 8 KiB. A failure still rejects through the existing coordinator. Diagnostic text is not a validated envelope or authorization receipt. Best-effort diagnostic persistence cannot gate cancellation or turn a rejection into acceptance.
+
+The first chain Stop source is recorded atomically: operator button, parent destruction (finishing/configuration/other), or an aborted lifecycle launch. The record includes the current case. Normal finalization uses a separate close path and cannot invent an operator Stop; later destruction cannot overwrite an earlier cause. The summary includes `chainStopCause` and `chainStopStep`; an optional 1 KiB stop record joins the eight test reports. Therefore report display permits at most nine files. The strict sequential completion gates are unchanged.
+
+A separately identified cancellation path is also corrected: native cancellation at entry can return CANCELLED with no exit, signal, errno or timeout before creating log files. That known no-child result now supplies empty missing streams and records unsuccessful `not-started` evidence, rather than throwing a missing-log exception. It does not claim child termination, and it never passes a completion test. Genuine cleanup uncertainty or a nonzero spawn errno does not qualify. This is a reproducible code-path correction; the supplied v7 report does not prove it caused that device failure.
+
+Install **ETroute Chain Diagnostics v8** alongside v7, keep the app foreground and wait for the summary without pressing Stop. Do not clear v7 data. If the new run halts, send the summary and ST08 report, which now preserve the failure phase and Stop source. A passing path still requires phone confirmation. General scripts remain disabled, and no retry/reset bypass is added.
+
+Additional JVM tests cover bounded failure text, missing native returns, underlying exceptions, known no-child cancellation, semantic not-started evidence, first-stop preservation, normal finalization and concurrent Stop sources. Instrumentation is compiled in CI; it is not presented as physical execution.

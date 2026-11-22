@@ -59,8 +59,17 @@ class FixedProbeEvidenceSession(context: Context, private val pack: PinnedRuntim
                 preflight = { RuntimePackPreflight(mapOf(pack.id to pack), platform).verify(it) },
                 approval = { !stopped.get() && approved() },
                 runner = ProbeCoordinator.Runner { id, claim ->
+                    var phase = "owner-check"
+                    var observedNative: NativeRunResult? = null
+                    var failureDirectory: File? = null
+                    var originalFailure: Exception? = null
+                    var originalPhase: String? = null
+                    try {
                     check(!stopped.get()) { "Owner stopped before launch" }
+                    phase = "workspace-create"
                     val paths = EtRouteWorkspaceManager(context).create(id)
+                    failureDirectory = paths.diagnostics
+                    phase = "launch-prepare"
                     val launch = PreparedLaunch(executable.path,
                         listOf(if (destroyAfterReady) "--probe-wait" else "--probe", payloadRoot.path),
                         mapOf("LD_LIBRARY_PATH" to native.path, "TMPDIR" to paths.tmp.path),
@@ -82,11 +91,19 @@ class FixedProbeEvidenceSession(context: Context, private val pack: PinnedRuntim
                             try { Thread.sleep(20) } catch (_: InterruptedException) { break }
                         }
                     } else null
-                    check(prefs.edit().putBoolean("uncertain", true).commit())
+                    phase = "in-flight-marker"
+                    check(prefs.edit().putBoolean("uncertain", true).commit()) { "Unable to persist in-flight marker" }
                     try {
+                        phase = "native-run"
                         val completed = EtRouteSessionRunner(context).run(launch) {
-                            request = it; check(control.attach(it)); watcher?.start()
+                            phase = "native-attach"
+                            request = it
+                            check(control.attach(it)) { "Owner closed before native attachment" }
+                            watcher?.start()
+                            phase = "native-run"
                         }.result
+                        observedNative = completed
+                        phase = "receipt-delivery"
                         result = ProbeCompletionReceipt.deliver(completed, simulateReceiptLoss)
                         done.set(true); watcher?.join(1000)
                         if (simulateReceiptLoss) {
@@ -96,14 +113,20 @@ class FixedProbeEvidenceSession(context: Context, private val pack: PinnedRuntim
                                 "actualSignal=${completed.signal}; actualNativeTerminationConfirmed=${ProbeCompletionReceipt.confirmed(completed)}")
                         }
                         // Never truncate JSON and parse its prefix. Reject over-limit bytes before envelope construction.
-                        val stdout = readBounded(File(launch.stdoutPath), 4096)
-                        val stderr = readBounded(File(launch.stderrPath), 4096)
+                        val noChild = ProbeCompletionReceipt.noChildStarted(result)
+                        phase = "stdout-read"
+                        val stdout = if (noChild && !File(launch.stdoutPath).exists()) ByteArray(0)
+                            else readBounded(File(launch.stdoutPath), 4096)
+                        phase = "stderr-read"
+                        val stderr = if (noChild && !File(launch.stderrPath).exists()) ByteArray(0)
+                            else readBounded(File(launch.stderrPath), 4096)
                         val payload = stdout + stderr
                         check(payload.size <= 8192)
                         val confirmed = ProbeCompletionReceipt.confirmed(result)
                         val marker = String(stdout, Charsets.UTF_8).lineSequence().any { it.startsWith("ETROUTE_PYTHON_PROBE_OK ") }
                         val outcome = when {
                             simulateReceiptLoss -> "unknown"
+                            noChild -> "not-started"
                             completed.cancelled -> "cancelled"
                             completed.timedOut -> "timed-out"
                             completed.succeeded && marker && stderr.isEmpty() && !stopped.get() -> "completed"
@@ -113,21 +136,38 @@ class FixedProbeEvidenceSession(context: Context, private val pack: PinnedRuntim
                         val observation = ProbeEvidenceValidator.Observation(id, pack.abi, Build.VERSION.SDK_INT,
                             policy.deviceBinding, Instant.now().toString(), outcome, completed.durationMs,
                             payload.size.toLong(), 0, result?.exitCode?.toLong(), result?.signal?.toLong(),
-                            result?.stage?.wire?.toLong(), if (confirmed) "confirmed" else "unconfirmed", "retained")
+                            result?.stage?.wire?.toLong(), if (noChild) "not-started" else if (confirmed) "confirmed" else "unconfirmed", "retained")
+                        phase = "envelope-build"
                         val submission = ProbeEvidenceSubmission.build(claim, observation, payload)
+                        phase = "envelope-write"
                         File(paths.diagnostics, "probe-envelope.json").writeBytes(submission.envelope)
+                        phase = "payload-write"
                         File(paths.diagnostics, "probe-payload.bin").writeBytes(submission.payload)
                         report = "simulation=${if (simulateReceiptLoss) "receipt-loss" else "none"} actualNativeTerminationConfirmed=${ProbeCompletionReceipt.confirmed(completed)}\n" +
                             "session=$id\nnativeStage=${completed.stage} durationMs=${completed.durationMs} termination=${observation.termination}\n" +
                             "destroyed=${destroyed.get()} ready=${ready.get()} diagnosticsRetained=true cleanupPerformed=false\n" +
                             "ENVELOPE:\n${String(submission.envelope, Charsets.UTF_8)}\nSTDOUT:\n${String(stdout, Charsets.UTF_8)}\nSTDERR:\n${String(stderr, Charsets.UTF_8)}"
                         submission
+                    } catch (error: Exception) {
+                        originalFailure = error; originalPhase = phase
+                        throw error
                     } finally {
+                        phase = "owner-finalization"
                         done.set(true); watcher?.interrupt(); watcher?.join(1000)
                         check(watcher?.isAlive != true) { "Readiness watcher did not end; chain must halt" }
-                        val certain = ProbeCompletionReceipt.confirmed(result)
+                        val certain = ProbeCompletionReceipt.confirmed(result) || ProbeCompletionReceipt.noChildStarted(result)
                         request?.let { control.complete(it, certain) }
-                        if (certain) check(prefs.edit().putBoolean("uncertain", false).commit())
+                        if (certain) check(prefs.edit().putBoolean("uncertain", false).commit()) { "Unable to persist confirmed completion" }
+                    }
+                    } catch (error: Exception) {
+                        report = "session=$id\n" + ProbeFailureDiagnostics.describe(
+                            if (error === originalFailure) originalPhase ?: phase else phase,
+                            error, observedNative, stopped.get(), destroyed.get(), Thread.currentThread().isInterrupted)
+                        // Failure evidence never becomes Accepted; retain an independent bounded diagnostic when possible.
+                        failureDirectory?.let { directory ->
+                            runCatching { File(directory, "probe-runner-error.txt").writeText(report) }
+                        }
+                        throw error
                     }
                 })
             val inspected = coordinator.inspect() as? ProbeCoordinator.Outcome.Inspected

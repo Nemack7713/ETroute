@@ -19,7 +19,7 @@ class AcceptanceChainActivity : Activity() {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; fitsSystemWindows = true; setPadding(24, 24, 24, 24) }
         run = Button(this).apply { id = android.R.id.button1; text = "RUN FIXED TEST CHAIN"; setOnClickListener { startChain() } }
         stop = Button(this).apply { text = "STOP CHAIN"; setOnClickListener {
-            active.get()?.stop(); isEnabled = false; text = "STOP REQUESTED — WAITING FOR OWNER"
+            active.get()?.stop(ChainStopCause.OPERATOR); isEnabled = false; text = "STOP REQUESTED — WAITING FOR OWNER"
         } }
         val summary = Button(this).apply { text = "SHOW CHAIN SUMMARY"; setOnClickListener { showSummary() } }
         val details = Button(this).apply { text = "SHOW TEST REPORTS"; setOnClickListener { showDetails() } }
@@ -47,7 +47,7 @@ class AcceptanceChainActivity : Activity() {
     }
     private fun showDetails() {
         val files = filesDir.listFiles { f -> f.name.startsWith("chain-") && f.name.endsWith(".txt") }?.sortedBy { it.name }.orEmpty()
-        check(files.size <= 8)
+        check(files.size <= 9)
         check(files.all { it.length() <= 24000 })
         output.text = files.joinToString("\n\n") { "${it.name}\n${it.readText()}" }.ifEmpty { "No completed test reports yet." }
     }
@@ -56,7 +56,7 @@ class AcceptanceChainActivity : Activity() {
         val current = AcceptanceChainRunner(applicationContext, launchLifecycle = { token ->
             runOnUiThread {
                 if (!destroyed) startActivity(Intent(this, ChainLifecycleActivity::class.java).putExtra("chainToken", token))
-                else active.get()?.stop()
+                else active.get()?.stop(ChainStopCause.LIFECYCLE_LAUNCH_ABORT)
             }
         }, progress = { message -> runOnUiThread { if (!destroyed) output.text = message } })
         if (!active.compareAndSet(null, current)) return
@@ -65,13 +65,22 @@ class AcceptanceChainActivity : Activity() {
         Thread {
             val report = try { current.run() } catch (error: Throwable) {
                 "SEQUENTIAL_CHAIN=ERROR\n${error::class.java.simpleName}: ${error.message?.take(1024)}\n" +
-                    "automaticRestart=false\ngeneralScriptExecutionEnabled=false"
-            } finally { current.stop(); active.compareAndSet(current, null) }
+                    "${current.stopReport()}\nautomaticRestart=false\ngeneralScriptExecutionEnabled=false"
+            } finally { current.close(); active.compareAndSet(current, null) }
             val temp = File(filesDir, "latest-chain-final.tmp")
             temp.writeText(report); check(temp.renameTo(File(filesDir, "latest-chain.txt")))
             runOnUiThread { if (!destroyed) { output.text = report; updateControls() } }
         }.start()
     }
-    override fun onDestroy() { destroyed = true; active.get()?.stop(); super.onDestroy() }
+    override fun onDestroy() {
+        destroyed = true
+        val cause = when {
+            isChangingConfigurations -> ChainStopCause.PARENT_DESTROY_CONFIGURATION
+            isFinishing -> ChainStopCause.PARENT_DESTROY_FINISHING
+            else -> ChainStopCause.PARENT_DESTROY_OTHER
+        }
+        active.get()?.stop(cause)
+        super.onDestroy()
+    }
     companion object { private val active = AtomicReference<AcceptanceChainRunner?>(null) }
 }

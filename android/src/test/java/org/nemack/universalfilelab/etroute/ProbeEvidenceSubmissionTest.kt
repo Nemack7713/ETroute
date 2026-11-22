@@ -53,4 +53,14 @@ class ProbeEvidenceSubmissionTest {
         try { ProbeEvidenceSubmission.build(claim, observation, ByteArray(8193)); fail("oversize accepted") }
         catch (_: IllegalArgumentException) { }
     }
+    @Test fun noChildCancellationIsUnsuccessfulRetainedEvidence() {
+        val registry = ProbeAuthorizationRegistry()
+        val claim = registry.claim(registry.issueApprovedScope(scope, 30000), scope) as ProbeAuthorizationRegistry.Claim.Consumed
+        val observation = ProbeEvidenceValidator.Observation("not-started", "arm64-v8a", 35, "device",
+            "2026-11-21T18:00:00Z", "not-started", 0, 0, 0, null, null, 14, "not-started", "retained")
+        val submission = ProbeEvidenceSubmission.build(claim, observation, ByteArray(0))
+        val result = ProbeEvidenceValidator(registry).validate(submission.envelope, ByteArray(0), claim, observation)
+            as ProbeEvidenceValidator.Result.Validated
+        assertFalse(result.successfulProbe); assertTrue(result.retainSession)
+    }
 }
