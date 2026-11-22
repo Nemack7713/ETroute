@@ -39,7 +39,8 @@ internal class ProbeCoordinator(
     internal sealed class Outcome {
         data class Inspected(val ticket: Ticket) : Outcome()
         object Authorized : Outcome()
-        data class Rejected(val reason: Reason) : Outcome()
+        data class Rejected(val reason: Reason, val registryDetail: String? = null,
+            val rejectionLocation: StackTraceElement? = null) : Outcome()
         data class Evidence(val validation: ProbeEvidenceValidator.Result) : Outcome()
     }
     private enum class State { INSPECTED, APPROVING, AUTHORIZED, DISPATCHING, FINISHED }
@@ -88,7 +89,15 @@ internal class ProbeCoordinator(
         synchronized(this) {
             if (closed) return finish(entry, Reason.CLOSED)
             try { entry.capability = registry.issueApprovedScope(entry.scope, policy.authorizationTtlMs) }
-            catch (_: IllegalStateException) { return finish(entry, Reason.REGISTRY_REJECTED) }
+            catch (error: IllegalStateException) {
+                val detail = when (error.message) {
+                    "Registry invalidated" -> "ISSUE_CLOSED"
+                    "Authorization capacity exhausted" -> "ISSUE_CAPACITY"
+                    "Request nonce already issued" -> "ISSUE_NONCE_REUSED"
+                    else -> "ISSUE_REJECTED"
+                }
+                return rejectRegistry(entry, detail)
+            }
             entry.state.set(State.AUTHORIZED)
             return Outcome.Authorized
         }
@@ -98,13 +107,17 @@ internal class ProbeCoordinator(
         val entry = entry(ticket) ?: return unavailable(ticket)
         if (!entry.state.compareAndSet(State.AUTHORIZED, State.DISPATCHING)) return Outcome.Rejected(Reason.WRONG_STATE)
         val boundRunner = runner ?: return finish(entry, Reason.RUNNER_UNAVAILABLE)
+        val recheckStarted = System.nanoTime()
         if (inspectedScope(entry.scope.requestNonce) != entry.scope) return finish(entry, Reason.STALE_BINDING)
+        val recheckMs = ((System.nanoTime() - recheckStarted) / 1_000_000).coerceAtLeast(0)
         val claim = synchronized(this) {
             if (closed) return finish(entry, Reason.CLOSED)
-            val capability = entry.capability ?: return finish(entry, Reason.REGISTRY_REJECTED)
+            val capability = entry.capability ?: return rejectRegistry(entry, "MISSING_CAPABILITY")
             registry.claim(capability, entry.scope)
         }
-        if (claim !is ProbeAuthorizationRegistry.Claim.Consumed) return finish(entry, Reason.REGISTRY_REJECTED)
+        if (claim is ProbeAuthorizationRegistry.Claim.Rejected) return rejectRegistry(entry,
+            "CLAIM_${claim.reason}; dispatchPreflightMs=$recheckMs; authorizationTtlMs=${policy.authorizationTtlMs}")
+        check(claim is ProbeAuthorizationRegistry.Claim.Consumed)
         // The claim is consumed before the trusted runner can see it. Exceptions never refund it.
         val submission = try { boundRunner.run(ticket.requestId, claim) }
             catch (_: Exception) { return finish(entry, Reason.RUNNER_ERROR) }
@@ -125,6 +138,13 @@ internal class ProbeCoordinator(
     @Synchronized private fun entry(ticket: Ticket): Entry? = if (closed) null else tickets[ticket]
     @Synchronized private fun unavailable(ticket: Ticket): Outcome =
         Outcome.Rejected(if (closed) Reason.CLOSED else if (ticket !in tickets) Reason.UNKNOWN_TICKET else Reason.WRONG_STATE)
+    // Diagnostic capture identifies the rejecting gate, not an exception or proof of a defective line.
+    private fun rejectRegistry(entry: Entry, detail: String): Outcome {
+        val location = Throwable().stackTrace.getOrNull(1)
+        finish(entry, Reason.REGISTRY_REJECTED)
+        return Outcome.Rejected(Reason.REGISTRY_REJECTED, detail, location)
+    }
+
     private fun finish(entry: Entry, reason: Reason): Outcome {
         entry.capability?.let { registry.revoke(it) }
         entry.state.set(State.FINISHED)

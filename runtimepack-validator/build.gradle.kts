@@ -12,11 +12,11 @@ android {
     compileSdk = 36
     buildToolsVersion = "35.0.0"
     defaultConfig {
-        applicationId = "org.nemack.universalfilelab.etroute.runtimepack.sourcecontext"
+        applicationId = "org.nemack.universalfilelab.etroute.runtimepack.registrytrace"
         minSdk = 26
         targetSdk = 36
-        versionCode = 9
-        versionName = "3.14.4-source-context-v9"
+        versionCode = 10
+        versionName = "3.14.4-registry-diagnostics-v10"
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

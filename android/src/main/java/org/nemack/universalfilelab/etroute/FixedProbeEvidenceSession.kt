@@ -176,7 +176,8 @@ class FixedProbeEvidenceSession(context: Context, private val pack: PinnedRuntim
             val ticket = inspected.ticket
             val authorization = coordinator.authorize(ticket)
             if (authorization !is ProbeCoordinator.Outcome.Authorized)
-                return "ST08_EVIDENCE=REJECTED_AUTHORIZATION\n$authorization\ngeneralScriptExecutionEnabled=false"
+                return "ST08_EVIDENCE=REJECTED_AUTHORIZATION\n$authorization\n" +
+                    rejectionContext(authorization) + "\ngeneralScriptExecutionEnabled=false"
             val outcome = coordinator.dispatch(ticket)
             val validation = (outcome as? ProbeCoordinator.Outcome.Evidence)?.validation
             val validated = validation as? ProbeEvidenceValidator.Result.Validated
@@ -185,6 +186,7 @@ class FixedProbeEvidenceSession(context: Context, private val pack: PinnedRuntim
                 (!validated.successfulProbe && validated.retainSession && prefs.getBoolean("uncertain", false))
             else if (destroyAfterReady)
                 (!validated.successfulProbe && validated.retainSession && lifecycleConfirmed) else validated.successfulProbe
+            if (!expected && outcome is ProbeCoordinator.Outcome.Rejected) report += "\n" + rejectionContext(outcome)
             if (!expected && !report.contains("SOURCE_CONTEXT")) report +=
                 "\nSOURCE_CONTEXT_UNAVAILABLE: outcome has no mapped exception location."
             if (simulateReceiptLoss) return "ST06_SIMULATED_RECEIPT_LOSS=${if (expected) "PASS" else "FAIL"}\n" +
@@ -195,6 +197,14 @@ class FixedProbeEvidenceSession(context: Context, private val pack: PinnedRuntim
         } finally {
             control.close(); coordinator?.close(); active.set(false)
         }
+    }
+
+    private fun rejectionContext(outcome: ProbeCoordinator.Outcome): String {
+        val rejection = outcome as? ProbeCoordinator.Outcome.Rejected
+        val location = rejection?.rejectionLocation
+        return "registryDetail=${rejection?.registryDetail ?: "not-applicable"}\n" +
+            if (location != null) SourceErrorContext.describeRejection(context, location)
+            else "SOURCE_CONTEXT_UNAVAILABLE: rejection has no captured gate location."
     }
 
     companion object {

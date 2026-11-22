@@ -5,6 +5,14 @@ import com.google.gson.JsonParser
 
 // Read-only mapping from this APK's source snapshot. Never fetches remote or user-supplied source paths.
 object SourceErrorContext {
+    // A typed rejection has no thrown exception. Map its captured gate without claiming root cause.
+    internal fun describeRejection(context: Context, location: StackTraceElement): String {
+        val capture = Throwable().also { it.stackTrace = arrayOf(location) }
+        val text = describe(context, capture)
+        if (!text.startsWith("SOURCE_EXCEPTION_TYPE=")) return text
+        return text.substringAfter('\n').replace("kind=EXCEPTION_LOCATION", "kind=REJECTION_GATE")
+    }
+
     private const val MAX_INDEX_BYTES = 2 * 1024 * 1024
     fun describe(context: Context, error: Throwable): String = try {
         val raw = context.assets.open("diagnostics/source-context-v1.json").use { input ->
