@@ -1,7 +1,7 @@
 name: Pinned Python RuntimePack candidate
 on:
   pull_request:
-    paths: ['runtimepack/**', 'runtimepack-validator/**', 'tools/runtimepack/**', '.github/workflows/python-runtimepack.yml', 'settings.gradle.kts']
+    paths: ['android/**', 'runtimepack/**', 'runtimepack-validator/**', 'tools/runtimepack/**', '.github/workflows/python-runtimepack.yml', 'settings.gradle.kts']
   workflow_dispatch:
 permissions:
   contents: read
@@ -35,6 +35,28 @@ jobs:
         run: ETROUTE_BUILD_ONLY=1 bash tools/run_android_jni_validation.sh
       - name: Build opt-in preflight APK and feasibility instrumentation
         run: ./gradlew --no-daemon --console=plain -PetrouteRuntimePack=true -PruntimepackBuildDir="$RUNNER_TEMP/etroute-python-candidate" :runtimepack-validator:assembleDebug :runtimepack-validator:assembleDebugAndroidTest :runtimepack-validator:testDebugUnitTest :android:testDebugUnitTest
+      - name: Inspect genuine AAR consumer and native contents
+        run: |
+          python3 - <<'PY'
+          import zipfile, hashlib, io
+          from pathlib import Path
+          aar = Path('android/build/outputs/aar/android-debug.aar')
+          with zipfile.ZipFile(aar) as a:
+              classes = zipfile.ZipFile(io.BytesIO(a.read('classes.jar')))
+              for name in ['FixedProbeResult', 'FixedProbeRequest', 'EtRouteFixedProbeBackend']:
+                  assert 'org/nemack/universalfilelab/etroute/' + name + '.class' in classes.namelist()
+              with zipfile.ZipFile('runtimepack-validator/build/outputs/apk/debug/runtimepack-validator-debug.apk') as apk:
+                  for name in a.namelist():
+                      if name.startswith('jni/arm64-v8a/') and name.endswith('.so'):
+                          assert hashlib.sha256(a.read(name)).digest() == hashlib.sha256(apk.read('lib/' + name[4:])).digest()
+          print('AAR_PUBLIC_API_AND_NATIVE_MATCH=PASS; ETUMAX_APPLICATION=NOT_CONNECTED')
+          PY
+      - uses: actions/upload-artifact@v5
+        with:
+          name: ETroute-Fixed-Probe-AAR
+          path: android/build/outputs/aar/android-debug.aar
+          if-no-files-found: error
+          retention-days: 30
       - name: Inspect packaged native worker and payload
         run: |
           python3 - <<'PY'
@@ -75,7 +97,7 @@ jobs:
           retention-days: 30
       - uses: actions/upload-artifact@v5
         with:
-          name: ETroute-Registry-Diagnostics-APK
+          name: ETroute-Typed-AAR-APK
           path: runtimepack-validator/build/outputs/apk/debug/runtimepack-validator-debug.apk
           if-no-files-found: error
           retention-days: 30

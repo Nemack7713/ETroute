@@ -12,11 +12,11 @@ android {
     compileSdk = 36
     buildToolsVersion = "35.0.0"
     defaultConfig {
-        applicationId = "org.nemack.universalfilelab.etroute.runtimepack.registrytrace"
+        applicationId = "org.nemack.universalfilelab.etroute.runtimepack.aarprobe"
         minSdk = 26
         targetSdk = 36
-        versionCode = 10
-        versionName = "3.14.4-registry-diagnostics-v10"
+        versionCode = 11
+        versionName = "3.14.4-typed-aar-v11"
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -36,7 +36,10 @@ android {
     kotlinOptions { jvmTarget = "17" }
 }
 dependencies {
-    implementation(project(":android"))
+    // Consumer compiles against the packaged AAR, not the library project source/classes.
+    implementation(files(rootProject.layout.projectDirectory.file("android/build/outputs/aar/android-debug.aar")).builtBy(":android:bundleDebugAar"))
+    implementation("com.google.code.gson:gson:2.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
@@ -72,3 +75,6 @@ val generateSourceContext by tasks.registering {
 }
 android.sourceSets.getByName("debug").assets.srcDir(sourceContextAssets)
 tasks.named("preBuild") { dependsOn(generateSourceContext) }
+
+// Explicit dependency also ensures the packaged JNI libraries exist before app packaging.
+tasks.named("preBuild") { dependsOn(":android:bundleDebugAar") }
