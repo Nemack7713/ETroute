@@ -71,3 +71,11 @@ The resolver examines up to three exception causes and 32 frames per cause. A ma
 The same source context is attached to fixed-probe runner exceptions, legacy interruption exceptions, chain action exceptions, lifecycle-host exceptions and parent chain exceptions. Non-exception native/validation outcomes explicitly state that no mapped exception location is available. Source diagnostics never replace evidence validation or weaken a completion barrier.
 
 **ETroute Error Context v9** installs alongside earlier apps. Run the fixed chain and send its summary plus any failed test report. Four JVM regression tests verify exact three-row ordering, boundary labels, ambiguous/synthetic locations and external-call-site labels. An instrumentation fixture verifies loading and rendering the actual APK's source asset; CI compiles it rather than claiming physical execution. No general script execution, reset or merge is enabled by this update.
+
+## Registry rejection diagnostics (v10)
+
+A registry rejection reports its specific claim or issuance reason. Claim failures include the dispatch-preflight duration and configured authorization TTL. Expiry during repeated admission checks is a candidate to investigate, not an established explanation for the v9 phone result. Expired, revoked, mismatched or replayed claims still fail closed before the runner. No TTL extension, automatic retry or authorization refund is introduced.
+
+Typed registry rejections include a captured source location labeled `REJECTION_GATE`, with the preceding line, rejecting line and following line. This is the enforcing check, not a thrown exception or a claim that the gate is defective. Source locations are mapped against the debug APK source snapshot.
+
+The v10 app has a separate identity and preserves v9 reports. JVM regression tests cover expiry before and during dispatch preflight, no runner invocation and terminal replay rejection. Physical-device acceptance remains pending. General scripts remain disabled.

@@ -103,7 +103,39 @@ class ProbeCoordinatorTest {
         val coordinator = ProbeCoordinator(policy, { report() }, { true }, goodRunner,
             ProbeAuthorizationRegistry(nanoTime = { now }))
         val ticket = ticket(coordinator); coordinator.authorize(ticket); now = 30_000_000_000L
-        rejected(coordinator.dispatch(ticket), ProbeCoordinator.Reason.REGISTRY_REJECTED)
+        val outcome = coordinator.dispatch(ticket) as ProbeCoordinator.Outcome.Rejected
+        rejected(outcome, ProbeCoordinator.Reason.REGISTRY_REJECTED)
+        assertTrue(outcome.registryDetail!!.startsWith("CLAIM_EXPIRED;"))
+        assertEquals("ProbeCoordinator.kt", outcome.rejectionLocation!!.fileName)
+        assertTrue(outcome.rejectionLocation.lineNumber > 0)
+        rejected(coordinator.dispatch(ticket), ProbeCoordinator.Reason.WRONG_STATE)
+    }
+    @Test fun expiryDuringDispatchPreflightRejectsWithoutRunningOrRefunding() {
+        var now = 0L; var checks = 0; var calls = 0
+        val coordinator = ProbeCoordinator(policy, {
+            checks++
+            if (checks == 3) now = 30_000_000_000L
+            report()
+        }, { true }, ProbeCoordinator.Runner { id, claim -> calls++; submission(id, claim) },
+            ProbeAuthorizationRegistry(nanoTime = { now }))
+        val ticket = ticket(coordinator)
+        assertEquals(ProbeCoordinator.Outcome.Authorized, coordinator.authorize(ticket))
+        val outcome = coordinator.dispatch(ticket) as ProbeCoordinator.Outcome.Rejected
+        assertTrue(outcome.registryDetail!!.contains("CLAIM_EXPIRED"))
+        assertTrue(outcome.registryDetail.contains("authorizationTtlMs=30000"))
+        assertEquals(0, calls)
+        rejected(coordinator.dispatch(ticket), ProbeCoordinator.Reason.WRONG_STATE)
+    }
+    @Test fun exhaustedRegistryReportsIssuanceGateAndRemainsTerminal() {
+        val coordinator = ProbeCoordinator(policy, { report() }, { true }, goodRunner,
+            ProbeAuthorizationRegistry(maxEntries = 1))
+        val first = ticket(coordinator)
+        assertEquals(ProbeCoordinator.Outcome.Authorized, coordinator.authorize(first))
+        val second = ticket(coordinator)
+        val outcome = coordinator.authorize(second) as ProbeCoordinator.Outcome.Rejected
+        assertEquals("ISSUE_CAPACITY", outcome.registryDetail)
+        assertEquals("ProbeCoordinator.kt", outcome.rejectionLocation!!.fileName)
+        rejected(coordinator.dispatch(second), ProbeCoordinator.Reason.WRONG_STATE)
     }
     @Test fun concurrentDispatchesRunExactlyOnceAndExceptionCannotRetry() {
         val calls = AtomicInteger()
