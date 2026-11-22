@@ -162,7 +162,8 @@ class FixedProbeEvidenceSession(context: Context, private val pack: PinnedRuntim
                     } catch (error: Exception) {
                         report = "session=$id\n" + ProbeFailureDiagnostics.describe(
                             if (error === originalFailure) originalPhase ?: phase else phase,
-                            error, observedNative, stopped.get(), destroyed.get(), Thread.currentThread().isInterrupted)
+                            error, observedNative, stopped.get(), destroyed.get(), Thread.currentThread().isInterrupted) +
+                            "\n" + SourceErrorContext.describe(context, error)
                         // Failure evidence never becomes Accepted; retain an independent bounded diagnostic when possible.
                         failureDirectory?.let { directory ->
                             runCatching { File(directory, "probe-runner-error.txt").writeText(report) }
@@ -184,6 +185,8 @@ class FixedProbeEvidenceSession(context: Context, private val pack: PinnedRuntim
                 (!validated.successfulProbe && validated.retainSession && prefs.getBoolean("uncertain", false))
             else if (destroyAfterReady)
                 (!validated.successfulProbe && validated.retainSession && lifecycleConfirmed) else validated.successfulProbe
+            if (!expected && !report.contains("SOURCE_CONTEXT")) report +=
+                "\nSOURCE_CONTEXT_UNAVAILABLE: outcome has no mapped exception location."
             if (simulateReceiptLoss) return "ST06_SIMULATED_RECEIPT_LOSS=${if (expected) "PASS" else "FAIL"}\n" +
                 "validation=$validation replayBlocked=$replayBlocked uncertainMarker=${prefs.getBoolean("uncertain", false)}\n" +
                 "$report\nactualNativeUncertaintyTested=false\ngeneralScriptExecutionEnabled=false"

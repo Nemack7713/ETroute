@@ -46,6 +46,17 @@ jobs:
               assert 'lib/arm64-v8a/libpython3.14.so' in z.namelist()
               assert 'assets/runtimepack/inventory.json' in z.namelist()
               assert z.read('lib/arm64-v8a/libetroute_python_worker.so')[:4] == b'\x7fELF'
+              context_bytes = z.read('assets/diagnostics/source-context-v1.json')
+              assert len(context_bytes) <= 2 * 1024 * 1024
+              context = json.loads(context_bytes)
+              assert context['schemaVersion'] == 1 and 0 < len(context['files']) <= 128
+              for entry in context['files']:
+                  source = Path(entry['path'])
+                  assert not source.is_absolute() and '..' not in source.parts and source.suffix == '.kt'
+                  assert entry['path'].startswith(('android/src/main/java/', 'runtimepack-validator/src/main/java/'))
+                  assert hashlib.sha256(source.read_bytes()).hexdigest() == entry['sha256']
+                  assert source.read_text().split('\n') == entry['lines']
+              print('APK_SOURCE_CONTEXT=PASS')
               inventory = json.loads(z.read('assets/runtimepack/inventory.json'))
               for name, digest in inventory['nativeSha256'].items():
                   assert hashlib.sha256(z.read('lib/arm64-v8a/' + name)).hexdigest() == digest
@@ -64,7 +75,7 @@ jobs:
           retention-days: 30
       - uses: actions/upload-artifact@v5
         with:
-          name: ETroute-Chain-Diagnostics-APK
+          name: ETroute-Error-Context-APK
           path: runtimepack-validator/build/outputs/apk/debug/runtimepack-validator-debug.apk
           if-no-files-found: error
           retention-days: 30

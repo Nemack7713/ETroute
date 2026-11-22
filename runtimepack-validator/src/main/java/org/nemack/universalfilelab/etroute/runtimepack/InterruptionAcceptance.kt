@@ -120,9 +120,11 @@ internal class InterruptionAcceptance(private val context: Context) {
                 appendLine("session=$id; diagnosticsRetained=true; cleanupPerformed=false")
                 appendLine("STDOUT: ${stdout.text}")
                 appendLine("STDERR: ${stderr.text}")
+                if (!passed) appendLine("SOURCE_CONTEXT_UNAVAILABLE: native/test outcome has no mapped exception location.")
             }
         } catch (error: Throwable) {
-            "${case.id}_${case.name}=ERROR\n${error::class.java.simpleName}: ${error.message?.take(512)}\nsession=$id; diagnosticsRetained=true"
+            "${case.id}_${case.name}=ERROR\n${error::class.java.simpleName}: ${error.message?.take(512)}\nsession=$id; diagnosticsRetained=true\n" +
+                org.nemack.universalfilelab.etroute.SourceErrorContext.describe(context, error)
         } finally {
             finished.set(true)
             watcher?.interrupt()
