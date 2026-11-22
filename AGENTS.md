@@ -26,3 +26,7 @@ Use the installed android-cli guidance for CLI work, adaptive guidance for adapt
 Run cumulative library/app JVM tests, native/JNI checks, APK and instrumentation compilation, packaged inventory verification and docs checks. Label instrumentation compilation separately from execution. Include what the change unblocks and remaining device gates in each PR. Stacked branch rebasing and merging are explicit operations; do not assume GitHub automatically rebases or merges a stack.
 
 ETuMAX is a separate repository: inspect its actual identity and contracts before making cross-repository edits.
+
+## Typed AAR slice
+
+User-reported v10 chain and separate reopen retention passed. Actual native uncertainty remains untested and the intermittent registry rejection is unexplained. The opt-in validator may consume the packaged debug AAR to validate its public fixed-probe handle; that is not the separate ETuMAX application. Inspect the actual ETuMAX repository before cross-repository integration. Blocking execute still needs an explicit host lifecycle/Stop policy; StateFlow observation never authorizes execution.

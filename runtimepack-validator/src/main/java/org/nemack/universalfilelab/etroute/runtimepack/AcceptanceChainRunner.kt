@@ -46,11 +46,22 @@ internal class AcceptanceChainRunner(context: Context, private val launchLifecyc
         } + listOf(
             SequentialAcceptanceChain.Step("ST08_COMPLETE", action = {
                 val candidate = Candidate.installAndInspect(context)
-                val owner = FixedProbeEvidenceSession(context, candidate.spec, candidate.root)
-                attach(owner::stop)
+                val backend = org.nemack.universalfilelab.etroute.EtRouteFixedProbeBackend(context, candidate.spec, candidate.root)
+                val request = backend.createRequest()
+                attach(request::stop)
                 try {
-                    result(owner.run(false, approved = { !halted.get() }), "ST08_COMPLETE=PASS")
-                } finally { owner.stop(); cancel.set(null) }
+                    val envelope = request.execute { !halted.get() }
+                    val passed = envelope.validation == org.nemack.universalfilelab.etroute.FixedProbeResult.Validation.VALIDATED &&
+                        envelope.successfulProbe && !envelope.generalScriptExecutionEnabled &&
+                        !envelope.actualNativeUncertaintyTested
+                    val report = "ST08_COMPLETE=${if (passed) "PASS" else "FAIL"}\nAAR_TYPED_RESULT=true\n" +
+                        "validation=${envelope.validation} successfulProbe=${envelope.successfulProbe} termination=${envelope.termination}\n" +
+                        "requestId=${envelope.requestId} sessionId=${envelope.sessionId} evidenceRef=${envelope.evidenceRef}\n" +
+                        "handleId=${request.handleId} phase=${request.state.value.phase}\n${envelope.diagnosticReport}\n" +
+                        "generalScriptExecutionEnabled=false\nactualNativeUncertaintyTested=false"
+                    SequentialAcceptanceChain.Result(passed, envelope.completionBarrierReached,
+                        envelope.termination != org.nemack.universalfilelab.etroute.FixedProbeResult.Termination.UNCONFIRMED, report)
+                } finally { request.stop(); cancel.set(null) }
             }),
             SequentialAcceptanceChain.Step("ST05_ST08_LIFECYCLE", action = {
                 val slot = ChainLifecycleBridge.Slot()

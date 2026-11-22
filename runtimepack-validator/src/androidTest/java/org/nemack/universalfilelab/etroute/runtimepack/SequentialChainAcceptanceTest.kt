@@ -28,6 +28,10 @@ class SequentialChainAcceptanceTest {
             assertTrue(report, report.startsWith("SEQUENTIAL_CHAIN=PASS_RETRY_BLOCKED"))
             assertTrue(report, report.contains("chainStopCause=NONE"))
             assertEquals(8, report.lineSequence().count { it.contains("=PASS;") && it.contains("barrierReached=true") })
+            val typed = File(context.filesDir, "chain-ST08_COMPLETE.txt").readText()
+            assertTrue(typed, typed.contains("AAR_TYPED_RESULT=true"))
+            assertTrue(typed, typed.contains("validation=VALIDATED successfulProbe=true termination=CONFIRMED"))
+            assertTrue(typed, typed.contains("phase=FINISHED"))
             assertNull(ChainLifecycleBridge.active.get())
             scenario.recreate()
             scenario.onActivity { assertFalse(it.findViewById<Button>(android.R.id.button1).isEnabled) }

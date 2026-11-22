@@ -18,6 +18,15 @@ class FixedProbeEvidenceSession(context: Context, private val pack: PinnedRuntim
     private val started = AtomicBoolean(false)
     private val control = NativeStopController<JniNativeSupervisor.Request> { it.cancel() }
 
+    private var typedResult: FixedProbeResult? = null
+
+    // Result is populated directly from coordinator/native objects, never from report text.
+    internal fun runTyped(approved: () -> Boolean): FixedProbeResult {
+        val report = runFixed(false, approved, {}, false)
+        check(report.toByteArray(Charsets.UTF_8).size <= 24000) { "Diagnostic report bound exceeded" }
+        return checkNotNull(typedResult) { "Typed owner outcome missing" }.copy(diagnosticReport = report)
+    }
+
     fun stop() { stopped.set(true); control.requestStop() }
     fun onDestroyed() { destroyed.set(true); stopped.set(true); control.close() }
 
@@ -55,6 +64,10 @@ class FixedProbeEvidenceSession(context: Context, private val pack: PinnedRuntim
                 wallTimeLimitMs = 10000, outputLimitBytes = 8192)
             var report = ""
             var lifecycleConfirmed = false
+            var nativeObservation: NativeRunResult? = null
+            var termination = FixedProbeResult.Termination.NOT_STARTED
+            var sessionId: String? = null
+            var evidenceRef: String? = null
             coordinator = ProbeCoordinator(policy,
                 preflight = { RuntimePackPreflight(mapOf(pack.id to pack), platform).verify(it) },
                 approval = { !stopped.get() && approved() },
@@ -68,6 +81,7 @@ class FixedProbeEvidenceSession(context: Context, private val pack: PinnedRuntim
                     check(!stopped.get()) { "Owner stopped before launch" }
                     phase = "workspace-create"
                     val paths = EtRouteWorkspaceManager(context).create(id)
+                    sessionId = id
                     failureDirectory = paths.diagnostics
                     phase = "launch-prepare"
                     val launch = PreparedLaunch(executable.path,
@@ -103,6 +117,7 @@ class FixedProbeEvidenceSession(context: Context, private val pack: PinnedRuntim
                             phase = "native-run"
                         }.result
                         observedNative = completed
+                        nativeObservation = completed
                         phase = "receipt-delivery"
                         result = ProbeCompletionReceipt.deliver(completed, simulateReceiptLoss)
                         done.set(true); watcher?.join(1000)
@@ -123,6 +138,8 @@ class FixedProbeEvidenceSession(context: Context, private val pack: PinnedRuntim
                         val payload = stdout + stderr
                         check(payload.size <= 8192)
                         val confirmed = ProbeCompletionReceipt.confirmed(result)
+                        termination = if (noChild) FixedProbeResult.Termination.NOT_STARTED
+                            else if (confirmed) FixedProbeResult.Termination.CONFIRMED else FixedProbeResult.Termination.UNCONFIRMED
                         val marker = String(stdout, Charsets.UTF_8).lineSequence().any { it.startsWith("ETROUTE_PYTHON_PROBE_OK ") }
                         val outcome = when {
                             simulateReceiptLoss -> "unknown"
@@ -143,6 +160,7 @@ class FixedProbeEvidenceSession(context: Context, private val pack: PinnedRuntim
                         File(paths.diagnostics, "probe-envelope.json").writeBytes(submission.envelope)
                         phase = "payload-write"
                         File(paths.diagnostics, "probe-payload.bin").writeBytes(submission.payload)
+                        evidenceRef = "etroute/sessions/$id/diagnostics/probe-envelope.json"
                         report = "simulation=${if (simulateReceiptLoss) "receipt-loss" else "none"} actualNativeTerminationConfirmed=${ProbeCompletionReceipt.confirmed(completed)}\n" +
                             "session=$id\nnativeStage=${completed.stage} durationMs=${completed.durationMs} termination=${observation.termination}\n" +
                             "destroyed=${destroyed.get()} ready=${ready.get()} diagnosticsRetained=true cleanupPerformed=false\n" +
@@ -172,16 +190,30 @@ class FixedProbeEvidenceSession(context: Context, private val pack: PinnedRuntim
                     }
                 })
             val inspected = coordinator.inspect() as? ProbeCoordinator.Outcome.Inspected
-                ?: return "ST08_EVIDENCE=REJECTED_PREFLIGHT\ngeneralScriptExecutionEnabled=false"
+                ?: run {
+                    typedResult = FixedProbeResult.notStarted("PREFLIGHT_REJECTED")
+                    return "ST08_EVIDENCE=REJECTED_PREFLIGHT\ngeneralScriptExecutionEnabled=false"
+                }
             val ticket = inspected.ticket
             val authorization = coordinator.authorize(ticket)
-            if (authorization !is ProbeCoordinator.Outcome.Authorized)
+            if (authorization !is ProbeCoordinator.Outcome.Authorized) {
+                typedResult = FixedProbeResult.notStarted("AUTHORIZATION_REJECTED")
                 return "ST08_EVIDENCE=REJECTED_AUTHORIZATION\n$authorization\n" +
                     rejectionContext(authorization) + "\ngeneralScriptExecutionEnabled=false"
+            }
             val outcome = coordinator.dispatch(ticket)
             val validation = (outcome as? ProbeCoordinator.Outcome.Evidence)?.validation
             val validated = validation as? ProbeEvidenceValidator.Result.Validated
             val replayBlocked = (coordinator.dispatch(ticket) as? ProbeCoordinator.Outcome.Rejected)?.reason == ProbeCoordinator.Reason.WRONG_STATE
+            val runnerError = (outcome as? ProbeCoordinator.Outcome.Rejected)?.reason == ProbeCoordinator.Reason.RUNNER_ERROR
+            typedResult = FixedProbeResult(ticket.requestId, sessionId,
+                if (runnerError) FixedProbeResult.Termination.UNCONFIRMED else termination,
+                when { validated != null -> FixedProbeResult.Validation.VALIDATED
+                    validation != null -> FixedProbeResult.Validation.REJECTED
+                    else -> FixedProbeResult.Validation.NOT_ATTEMPTED },
+                validated?.successfulProbe == true, nativeObservation, evidenceRef,
+                (outcome as? ProbeCoordinator.Outcome.Rejected)?.let { it.registryDetail ?: it.reason.name },
+                !runnerError && termination != FixedProbeResult.Termination.UNCONFIRMED, true)
             val expected = validated != null && replayBlocked && if (simulateReceiptLoss)
                 (!validated.successfulProbe && validated.retainSession && prefs.getBoolean("uncertain", false))
             else if (destroyAfterReady)
