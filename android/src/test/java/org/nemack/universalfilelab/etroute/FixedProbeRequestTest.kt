@@ -75,6 +75,27 @@ class FixedProbeRequestTest {
         assertFalse(released!!.completionBarrierReached)
         assertFalse(released!!.actualNativeUncertaintyTested)
     }
+    @Test fun terminalStateIsVisibleBeforeBackendRelease() {
+        lateinit var request: FixedProbeRequest
+        request = FixedProbeRequest(object : FixedProbeRequest.Port {
+            override fun run(approved: () -> Boolean): FixedProbeResult { check(approved()); return result() }
+            override fun stop() { }
+        }) { assertEquals(FixedProbeRequest.Phase.FINISHED, request.state.value.phase) }
+        request.execute { true }
+    }
+    @Test fun ownerFailureAfterStopDoesNotSignalCancelTwice() {
+        val port = Port(); val request = FixedProbeRequest(port) {}
+        val pool = Executors.newSingleThreadExecutor()
+        try {
+            val future = pool.submit<FixedProbeResult> { request.execute { true } }
+            assertTrue(port.attached.await(5, TimeUnit.SECONDS))
+            request.stop()
+            pool.shutdownNow()
+            try { future.get(5, TimeUnit.SECONDS); fail("Expected interrupted owner") } catch (_: java.util.concurrent.ExecutionException) { }
+            assertEquals(1, port.cancels.get())
+            assertEquals(FixedProbeRequest.Phase.RECOVERY_REQUIRED, request.state.value.phase)
+        } finally { port.terminated.countDown(); pool.shutdownNow() }
+    }
     @Test fun cancelledAwaitSignalsStopButDoesNotInventTermination() = runBlocking {
         val port = Port(); val request = FixedProbeRequest(port) {}
         val waiter = launch { request.awaitCompletion() }

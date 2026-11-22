@@ -39,7 +39,7 @@ class FixedProbeRequest internal constructor(
             else port.run { !synchronized(lock) { stopped } && approved() }
         } catch (error: Exception) {
             // Signal explicitly; never infer native termination from a caught exception.
-            port.stop()
+            stop()
             publish(FixedProbeResult.uncertain())
             throw error
         }
