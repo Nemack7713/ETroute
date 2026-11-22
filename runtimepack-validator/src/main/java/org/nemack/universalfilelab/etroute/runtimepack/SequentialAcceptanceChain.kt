@@ -3,7 +3,8 @@ package org.nemack.universalfilelab.etroute.runtimepack
 import java.util.concurrent.atomic.AtomicBoolean
 
 // Blocking, single-use sequence. An action returns only after its owner and report finalization have ended.
-internal class SequentialAcceptanceChain(private val steps: List<Step>) {
+internal class SequentialAcceptanceChain(private val steps: List<Step>,
+    private val errorContext: (Throwable) -> String = { "SOURCE_CONTEXT_UNAVAILABLE: source lookup was not configured." }) {
     data class Step(val id: String, val terminalRetention: Boolean = false, val action: () -> Result)
     data class Result(val passed: Boolean, val barrierReached: Boolean, val permitsNext: Boolean, val report: String)
     private val started = AtomicBoolean(false)
@@ -24,7 +25,7 @@ internal class SequentialAcceptanceChain(private val steps: List<Step>) {
             checkpoint((lines + "${step.id}=RUNNING").joinToString("\n"))
             if (stopped.get()) { status = "STOPPED"; break }
             val result = try { step.action() } catch (error: Throwable) {
-                Result(false, false, false, "ERROR ${error::class.java.simpleName}: ${error.message?.take(1024)}")
+                Result(false, false, false, "ERROR ${error::class.java.simpleName}: ${error.message?.take(1024)}\n" + errorContext(error))
             }
             check(result.report.toByteArray(Charsets.UTF_8).size <= 24000) { "Step report exceeds bound" }
             detail(step.id, result.report)

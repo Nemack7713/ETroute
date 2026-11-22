@@ -88,7 +88,7 @@ internal class AcceptanceChainRunner(context: Context, private val launchLifecyc
                 } finally { owner.stop(); cancel.set(null) }
             })
         )
-        chain = SequentialAcceptanceChain(steps)
+        chain = SequentialAcceptanceChain(steps, errorContext = { org.nemack.universalfilelab.etroute.SourceErrorContext.describe(context, it) })
         if (halted.get()) chain.stop()
         return try { chain.run(checkpoint = {
             currentStep = it.lineSequence().last().substringBefore('=')

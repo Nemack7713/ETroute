@@ -1,5 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application android:label="ETroute Chain Diagnostics v8" android:extractNativeLibs="true" android:allowBackup="false" android:theme="@android:style/Theme.Material.NoActionBar">
+    <application android:label="ETroute Error Context v9" android:extractNativeLibs="true" android:allowBackup="false" android:theme="@android:style/Theme.Material.NoActionBar">
         <activity android:name=".EvidenceActivity" android:exported="false" />
         <activity android:name=".MainActivity" android:exported="false" />
         <activity android:name=".AcceptanceActivity" android:exported="false" />

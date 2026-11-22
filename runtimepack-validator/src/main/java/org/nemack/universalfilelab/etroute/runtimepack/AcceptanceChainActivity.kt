@@ -65,6 +65,7 @@ class AcceptanceChainActivity : Activity() {
         Thread {
             val report = try { current.run() } catch (error: Throwable) {
                 "SEQUENTIAL_CHAIN=ERROR\n${error::class.java.simpleName}: ${error.message?.take(1024)}\n" +
+                    "${org.nemack.universalfilelab.etroute.SourceErrorContext.describe(applicationContext, error)}\n" +
                     "${current.stopReport()}\nautomaticRestart=false\ngeneralScriptExecutionEnabled=false"
             } finally { current.close(); active.compareAndSet(current, null) }
             val temp = File(filesDir, "latest-chain-final.tmp")

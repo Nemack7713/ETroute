@@ -54,7 +54,8 @@ class ChainLifecycleActivity : Activity() {
                     }
                 }
             } catch (error: Throwable) {
-                "LIFECYCLE_ERROR ${error::class.java.simpleName}: ${error.message?.take(1024)}"
+                "LIFECYCLE_ERROR ${error::class.java.simpleName}: ${error.message?.take(1024)}\n" +
+                    org.nemack.universalfilelab.etroute.SourceErrorContext.describe(applicationContext, error)
             } finally {
                 current.owner?.stop()
                 current.finish?.invoke()
